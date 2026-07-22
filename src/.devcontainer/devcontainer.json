@@ -1,0 +1,19 @@
+{
+    "name": "ubi-base",
+    "build": {
+        "dockerfile": "./Containerfile",
+        "context": ".",
+        "target": "base"
+    },
+    "containerEnv": {
+        "PROJECT_ROOT": "${containerWorkspaceFolder}"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": true,
+            "username": "vscode",
+            "upgradePackages": true
+        }
+    },
+    "remoteUser": "vscode"
+}

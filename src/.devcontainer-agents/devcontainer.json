@@ -1,0 +1,37 @@
+{
+    "name": "ubi-agents",
+    "build": {
+        "dockerfile": "../.devcontainer/Containerfile",
+        "context": "../.devcontainer",
+        "target": "agents"
+    },
+    "containerEnv": {
+        "PROJECT_ROOT": "${containerWorkspaceFolder}",
+        "CLAUDE_CONFIG_DIR": "/mnt/portable-agents/claude",
+        "CODEX_HOME": "/mnt/portable-agents/codex",
+        // "XDG_CONFIG_HOME": "/mnt/portable-agents/opencode/config",
+        // "XDG_DATA_HOME": "/mnt/portable-agents/opencode/data",
+        // "XDG_CACHE_HOME": "/mnt/portable-agents/opencode/cache",
+        // "XDG_STATE_HOME": "/mnt/portable-agents/opencode/state"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": true,
+            "configureZshAsDefaultShell": true,
+            "username": "vscode",
+            "upgradePackages": true
+        },
+        "ghcr.io/devcontainers/features/python:1": {
+            "version": "3.14",
+            "installTools": true,
+            "toolsToInstall": ""
+        }
+    },
+    "remoteUser": "vscode",
+    "containerUser": "vscode",
+    "mounts": [
+        "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
+        "source=portable-agents,target=/mnt/portable-agents,type=volume",
+    ],
+    "postCreateCommand": "sudo mkdir -p /mnt/portable-agents/claude /mnt/portable-agents/codex /mnt/portable-agents/opencode/config /mnt/portable-agents/opencode/data /mnt/portable-agents/opencode/cache /mnt/portable-agents/opencode/state && sudo chown -R $(id -u):$(id -g) /mnt/portable-agents \"${containerWorkspaceFolder}/.claude\""
+}
