@@ -1,9 +1,9 @@
 {
-    "name": "ubi-python",
+    "name": "ubi-devops",
     "build": {
         "dockerfile": "../.devcontainer/Containerfile",
         "context": "../.devcontainer",
-        "target": "python"
+        "target": "devops"
     },
     "containerEnv": {
         "PROJECT_ROOT": "${containerWorkspaceFolder}",
@@ -24,8 +24,8 @@
     "mounts": [
         "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
         "source=portable-agents,target=/var/llms,type=volume",
-        "source=devcontainer-cache-pip,target=/opt/devcontainer-cache/pip,type=volume",
-        "source=devcontainer-cache-uv,target=/opt/devcontainer-cache/uv,type=volume"
+        "source=devcontainer-cache-terraform,target=/opt/devcontainer-cache/terraform,type=volume",
+        "source=devcontainer-cache-ansible,target=/opt/devcontainer-cache/ansible,type=volume"
     ],
-    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\" && if [ -f \"${containerWorkspaceFolder}/requirements.txt\" ] || [ -f \"${containerWorkspaceFolder}/dev_requirements.txt\" ]; then set --; [ -f \"${containerWorkspaceFolder}/requirements.txt\" ] && set -- \"$@\" -r \"${containerWorkspaceFolder}/requirements.txt\"; [ -f \"${containerWorkspaceFolder}/dev_requirements.txt\" ] && set -- \"$@\" -r \"${containerWorkspaceFolder}/dev_requirements.txt\"; python -m pip install \"$@\"; fi"
+    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\""
 }

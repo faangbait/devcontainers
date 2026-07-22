@@ -127,7 +127,9 @@ COPY --from=builder-agents /mnt/agents-bin/ /usr/local/bin/
 RUN <<-EOT
 python3.14 -m pip install --no-cache-dir pipx
 
-PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin python3.14 -m pipx install spec-kitty-cli code-review-graph --pip-args="--no-cache-dir"
+PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin python3.14 -m pipx install spec-kitty-cli --pip-args="--no-cache-dir"
+PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin python3.14 -m pipx install code-review-graph --pip-args="--no-cache-dir"
+
     
 npm install -g context-mode
 npx --yes opencode-openai-codex-auth@latest
@@ -153,3 +155,13 @@ ADD --chmod=+x https://github.com/mikefarah/yq/releases/latest/download/yq_linux
 FROM python AS django
 
 RUN python3.14 -m pip install --no-cache-dir django
+
+# ---------------------------------------------------------------------------
+# `rust`, `typescript`, `devops` extend `agents`. Empty for now - language
+# packages land in a later change.
+# ---------------------------------------------------------------------------
+FROM agents AS rust
+
+FROM agents AS typescript
+
+FROM agents AS devops

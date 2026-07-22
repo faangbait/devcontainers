@@ -1,9 +1,9 @@
 {
-    "name": "ubi-python",
+    "name": "ubi-rust",
     "build": {
         "dockerfile": "../.devcontainer/Containerfile",
         "context": "../.devcontainer",
-        "target": "python"
+        "target": "rust"
     },
     "containerEnv": {
         "PROJECT_ROOT": "${containerWorkspaceFolder}",
@@ -24,8 +24,9 @@
     "mounts": [
         "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
         "source=portable-agents,target=/var/llms,type=volume",
-        "source=devcontainer-cache-pip,target=/opt/devcontainer-cache/pip,type=volume",
-        "source=devcontainer-cache-uv,target=/opt/devcontainer-cache/uv,type=volume"
+        "source=devcontainer-cache-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+        "source=devcontainer-cache-cargo-git,target=/usr/local/cargo/git,type=volume",
+        "source=devcontainer-cache-cargo-target-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/target,type=volume"
     ],
-    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\" && if [ -f \"${containerWorkspaceFolder}/requirements.txt\" ] || [ -f \"${containerWorkspaceFolder}/dev_requirements.txt\" ]; then set --; [ -f \"${containerWorkspaceFolder}/requirements.txt\" ] && set -- \"$@\" -r \"${containerWorkspaceFolder}/requirements.txt\"; [ -f \"${containerWorkspaceFolder}/dev_requirements.txt\" ] && set -- \"$@\" -r \"${containerWorkspaceFolder}/dev_requirements.txt\"; python -m pip install \"$@\"; fi"
+    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\""
 }
