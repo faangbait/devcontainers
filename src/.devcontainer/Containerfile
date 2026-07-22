@@ -3,39 +3,63 @@ ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0
 
 FROM registry.access.redhat.com/ubi10:latest AS builder-agents
 RUN dnf install -y --releasever 10 --setopt=install_weak_deps=0 --nodocs \
-        ca-certificates crontabs
+        ca-certificates crontabs shadow-utils nodejs24 nodejs24-npm
 
 WORKDIR /mnt/init
-ADD --chmod=+x https://claude.ai/install.sh ./01_claude
+ADD --chmod=+x https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./01_smart-tree
 ADD --chmod=+x https://chatgpt.com/codex/install.sh ./02_codex
-ADD --chmod=+x https://opencode.ai/install ./03_opencode
-ADD --chmod=+x https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./04_smart-tree
 
-# npm install -g @anthropic-ai/claude-code
-# npm install -g opencode-ai
-# npm install -g @openai/codex
-
-# These installers assume a real $HOME to unpack config/cache/state into, but
-# all we want out of them is the resolved binary - everything else in this
-# stage gets discarded. Payload locations below were found by running each
-# installer against a scratch $HOME and diffing the filesystem for new files:
-#   claude     -> $HOME/.local/bin/claude (symlink to the real versioned binary)
+# claude-code and opencode-ai come from npm; codex's npm wrapper isn't a
+# standalone binary (the smoke test below caught it failing without the rest
+# of its package tree), so codex keeps its own curl installer, same as
+# smart-tree. Nothing here should run as root - root-owned files would carry
+# straight into the final image via the COPY below. Everything runs as an
+# unprivileged "builder" user in a scratch $HOME/prefix, and only the
+# resolved binaries get copied into $INSTALL_DIR:
+#   claude     -> $NPM_CONFIG_PREFIX/bin/claude
+#   opencode   -> $NPM_CONFIG_PREFIX/bin/opencode
 #   codex      -> $HOME/.codex/packages/standalone/releases/<ver>/bin/codex
-#   opencode   -> $HOME/.opencode/bin/opencode
 #   smart-tree -> installs straight to $INSTALL_DIR, no $HOME payload
 ENV HOME=/mnt/agents-home
 ENV INSTALL_DIR=/mnt/agents-bin
+ENV NPM_CONFIG_PREFIX=/mnt/agents-npm
 ENV CODEX_INSTALL_DIR=/mnt/agents-bin
 ENV CODEX_NON_INTERACTIVE=1
 
+ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-unknown-linux-musl.tar.gz "$INSTALL_DIR/"
+
 RUN <<EOF
-mkdir -p "$HOME" "$INSTALL_DIR"
-run-parts /mnt/init/
-rm -f "$INSTALL_DIR/codex"
-cp -L "$HOME/.local/bin/claude" "$INSTALL_DIR/claude"
+set -e
+ln -sf /usr/bin/node-24 /usr/local/bin/node && \
+ln -sf /usr/bin/npm-24 /usr/local/bin/npm && \
+ln -sf /usr/bin/npx-24 /usr/local/bin/npx
+
+useradd -m -d "$HOME" -u 10000 builder
+mkdir -p "$INSTALL_DIR" "$NPM_CONFIG_PREFIX"
+chown -R builder:builder "$HOME" "$INSTALL_DIR" "$NPM_CONFIG_PREFIX" /mnt/init
+
+su builder -c "
+  set -e
+  export HOME='$HOME'
+  export NPM_CONFIG_PREFIX='$NPM_CONFIG_PREFIX'
+  export CODEX_INSTALL_DIR='$INSTALL_DIR'
+  export CODEX_NON_INTERACTIVE=1
+  run-parts /mnt/init/
+  rm -f '$INSTALL_DIR/codex'
+npm install -g @anthropic-ai/claude-code opencode-ai bun
+  "
+
+cp -L "$NPM_CONFIG_PREFIX/bin/claude"   "$INSTALL_DIR/claude"
+cp -L "$NPM_CONFIG_PREFIX/bin/opencode" "$INSTALL_DIR/opencode"
+cp -L "$NPM_CONFIG_PREFIX/bin/bun"      "$INSTALL_DIR/bun"
 cp -L "$HOME"/.codex/packages/standalone/releases/*/bin/codex "$INSTALL_DIR/codex"
-cp -L "$HOME/.opencode/bin/opencode" "$INSTALL_DIR/opencode"
 chmod +x "$INSTALL_DIR"/*
+
+# Smoke test: fail the build now if a resolved binary can't stand on its own
+# without the rest of its package tree, rather than shipping broken.
+"$INSTALL_DIR/claude" --version
+"$INSTALL_DIR/opencode" --version
+"$INSTALL_DIR/codex" --version
 EOF
 
 FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base
@@ -53,8 +77,16 @@ microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --nodocs \
     python3.14-requests python3.14-setuptools \
     libffi-devel libxml2-devel sqlite-devel \
     nodejs24 nodejs24-npm chkconfig && \
+    gawk bash-completion iproute procps \
+    lsof net-tools psmisc rsync unzip xz zip \
+    nano vim-minimal less jq openssl-libs krb5-libs libicu zlib sudo \
+    sed grep which man-db strace socat zsh && \
     microdnf clean all
+
+microdnf install -y openssh-clients && microdnf clean all
 EOT
+
+
 
 COPY --from=builder /mnt/ripgrep-*/rg /usr/local/bin/
 
@@ -92,9 +124,20 @@ FROM base AS agents
 
 COPY --from=builder-agents /mnt/agents-bin/ /usr/local/bin/
 
-RUN python3.14 -m pip install --no-cache-dir pipx && \
-    PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin python3.14 -m pipx install spec-kitty-cli && \
-    npm install -g context-mode
+RUN <<-EOT
+python3.14 -m pip install --no-cache-dir pipx
+
+PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin python3.14 -m pipx install spec-kitty-cli code-review-graph --pip-args="--no-cache-dir"
+    
+npm install -g context-mode
+npx --yes opencode-openai-codex-auth@latest
+npx --yes @slkiser/opencode-quota init
+rtk init -g --opencode
+code-review-graph install -y
+code-review-graph build
+npm cache clean --force
+
+EOT
 
 # ---------------------------------------------------------------------------
 # `python` extends `agents`. Same pattern as the other language variants:

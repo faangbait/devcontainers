@@ -7,9 +7,9 @@
     },
     "containerEnv": {
         "PROJECT_ROOT": "${containerWorkspaceFolder}",
-        "CLAUDE_CONFIG_DIR": "/mnt/portable-agents/claude",
-        "CODEX_HOME": "/mnt/portable-agents/codex",
-        "OPENCODE_CONFIG_DIR": "/mnt/portable-agents/opencode"
+        "CLAUDE_CONFIG_DIR": "/var/llms/claude",
+        "CODEX_HOME": "/var/llms/codex",
+        "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -28,7 +28,7 @@
     "containerUser": "vscode",
     "mounts": [
         "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
-        "source=portable-agents,target=/mnt/portable-agents,type=volume",
+        "source=portable-agents,target=/var/llms,type=volume",
     ],
-    "postCreateCommand": "sudo mkdir -p /mnt/portable-agents/claude /mnt/portable-agents/codex /mnt/portable-agents/opencode && sudo chown -R $(id -u):$(id -g) /mnt/portable-agents \"${containerWorkspaceFolder}/.claude\""
+    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\""
 }
