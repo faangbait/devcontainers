@@ -9,7 +9,9 @@
         "PROJECT_ROOT": "${containerWorkspaceFolder}",
         "CLAUDE_CONFIG_DIR": "/var/llms/claude",
         "CODEX_HOME": "/var/llms/codex",
-        "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
+        "OPENCODE_CONFIG_DIR": "/var/llms/opencode",
+        "TF_PLUGIN_CACHE_DIR": "/opt/devcontainer-cache/terraform",
+        "ANSIBLE_COLLECTIONS_PATH": "/opt/devcontainer-cache/ansible/collections:/usr/share/ansible/collections"
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -27,5 +29,6 @@
         "source=devcontainer-cache-terraform,target=/opt/devcontainer-cache/terraform,type=volume",
         "source=devcontainer-cache-ansible,target=/opt/devcontainer-cache/ansible,type=volume"
     ],
-    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\""
+    "postCreateCommand": "devcontainer-post-create",
+    "postAttachCommand": "devcontainer-post-attach"
 }

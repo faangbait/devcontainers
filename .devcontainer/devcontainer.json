@@ -2,6 +2,7 @@
     "name": "meta.middleware",
     "image": "faangbait/workspaces:agents",
     "containerEnv": {
-        "PROJECT_ROOT": "${containerWorkspaceFolder}"
+        "PROJECT_ROOT": "${containerWorkspaceFolder}",
+        "AWS_PROFILE": ""
     }
 }

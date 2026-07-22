@@ -9,7 +9,9 @@
         "PROJECT_ROOT": "${containerWorkspaceFolder}",
         "CLAUDE_CONFIG_DIR": "/var/llms/claude",
         "CODEX_HOME": "/var/llms/codex",
-        "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
+        "OPENCODE_CONFIG_DIR": "/var/llms/opencode",
+        "PIP_CACHE_DIR": "/opt/devcontainer-cache/pip",
+        "UV_CACHE_DIR": "/opt/devcontainer-cache/uv"
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -27,5 +29,6 @@
         "source=devcontainer-cache-pip,target=/opt/devcontainer-cache/pip,type=volume",
         "source=devcontainer-cache-uv,target=/opt/devcontainer-cache/uv,type=volume"
     ],
-    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\" && if [ -f \"${containerWorkspaceFolder}/requirements.txt\" ] || [ -f \"${containerWorkspaceFolder}/dev_requirements.txt\" ]; then set --; [ -f \"${containerWorkspaceFolder}/requirements.txt\" ] && set -- \"$@\" -r \"${containerWorkspaceFolder}/requirements.txt\"; [ -f \"${containerWorkspaceFolder}/dev_requirements.txt\" ] && set -- \"$@\" -r \"${containerWorkspaceFolder}/dev_requirements.txt\"; python -m pip install \"$@\"; fi"
+    "postCreateCommand": "devcontainer-post-create",
+    "postAttachCommand": "devcontainer-post-attach"
 }

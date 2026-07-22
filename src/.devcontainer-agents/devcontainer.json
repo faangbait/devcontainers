@@ -28,7 +28,8 @@
     "containerUser": "vscode",
     "mounts": [
         "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
-        "source=portable-agents,target=/var/llms,type=volume",
+        "source=portable-agents,target=/var/llms,type=volume"
     ],
-    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\""
+    "postCreateCommand": "devcontainer-post-create",
+    "postAttachCommand": "devcontainer-post-attach"
 }

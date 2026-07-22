@@ -15,5 +15,7 @@
             "upgradePackages": true
         }
     },
-    "remoteUser": "vscode"
+    "remoteUser": "vscode",
+    "postCreateCommand": "devcontainer-post-create",
+    "postAttachCommand": "devcontainer-post-attach"
 }

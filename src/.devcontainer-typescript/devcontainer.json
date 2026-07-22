@@ -9,7 +9,8 @@
         "PROJECT_ROOT": "${containerWorkspaceFolder}",
         "CLAUDE_CONFIG_DIR": "/var/llms/claude",
         "CODEX_HOME": "/var/llms/codex",
-        "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
+        "OPENCODE_CONFIG_DIR": "/var/llms/opencode",
+        "NPM_CONFIG_CACHE": "/opt/devcontainer-cache/npm"
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -27,5 +28,6 @@
         "source=devcontainer-cache-npm,target=/opt/devcontainer-cache/npm,type=volume",
         "source=devcontainer-cache-pnpm,target=/opt/devcontainer-cache/pnpm,type=volume"
     ],
-    "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\""
+    "postCreateCommand": "devcontainer-post-create",
+    "postAttachCommand": "devcontainer-post-attach"
 }

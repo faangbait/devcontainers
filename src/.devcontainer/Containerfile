@@ -9,10 +9,10 @@ WORKDIR /mnt/init
 ADD --chmod=+x https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./01_smart-tree
 ADD --chmod=+x https://chatgpt.com/codex/install.sh ./02_codex
 
-# claude-code and opencode-ai come from npm; codex's npm wrapper isn't a
-# standalone binary (the smoke test below caught it failing without the rest
-# of its package tree), so codex keeps its own curl installer, same as
-# smart-tree. Nothing here should run as root - root-owned files would carry
+# claude-code and opencode-ai are standalone bins _distributed_ by npm.
+# codex is dependent on npm libraries and must stay packaged.
+
+# Nothing here should run as root - root-owned files would carry
 # straight into the final image via the COPY below. Everything runs as an
 # unprivileged "builder" user in a scratch $HOME/prefix, and only the
 # resolved binaries get copied into $INSTALL_DIR:
@@ -86,6 +86,31 @@ microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --nodocs \
 microdnf install -y openssh-clients && microdnf clean all
 EOT
 
+COPY --chmod=0755 post-create.sh /usr/local/bin/devcontainer-post-create
+COPY --chmod=0755 post-attach.sh /usr/local/bin/devcontainer-post-attach
+
+# Baked system-default AWS SSO config (one [default] account + shared session,
+# no credentials). AWS reads a SINGLE config file: AWS_CONFIG_FILE if set, else
+# ~/.aws/config. We deliberately do NOT set AWS_CONFIG_FILE, so AWS reads
+# ~/.aws/config (the conventional home location). post-create.sh seeds
+# ~/.aws/config from this baked default only when the user/project hasn't
+# provided one, so a per-container ~/.aws/config (e.g. the other account)
+# supersedes cleanly. awscli itself is not installed yet (gated on PR #1690:
+# https://github.com/devcontainers/features/pull/1690); this activates the
+# moment it lands.
+RUN mkdir -p /etc/aws && cat > /etc/aws/config <<'EOF'
+[default]
+region = us-east-1
+output = json
+sso_session = limitless-sso
+sso_account_id = 133652389253
+sso_role_name = SuperAdmin
+
+[sso-session limitless-sso]
+sso_start_url = https://d-9067ee3c43.awsapps.com/start/#
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+EOF
 
 
 COPY --from=builder /mnt/ripgrep-*/rg /usr/local/bin/
@@ -102,6 +127,13 @@ RUN mkdir -p /usr/local/lib/node_modules && \
     setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
 
 LABEL maintainer="S Smith <root@madeof.glass>"
+
+# Default VS Code extensions baked into every image derived from `base`
+# (agents, python, django, rust, typescript, devops all inherit this LABEL).
+# `devcontainer.metadata` is the OCI label the spec merges with the user's
+# devcontainer.json at create time; extensions arrays union without dups, so
+# downstream stages and user devcontainer.json can only add, never override.
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["EditorConfig.EditorConfig","timonwong.shellcheck","mikestead.dotenv","KevinRose.vsc-python-indent"]}}}'
 ENV container=oci
 ENV LANG=C.UTF-8
 
@@ -124,7 +156,12 @@ FROM base AS agents
 
 COPY --from=builder-agents /mnt/agents-bin/ /usr/local/bin/
 
+# agents-only extension (provider bridge for opencode). Merges with the base
+# LABEL via union: agents gets base's EditorConfig+shellcheck plus this one.
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ankurmathur.opencode-provider-bridge"]}}}'
+
 RUN <<-EOT
+
 python3.14 -m pip install --no-cache-dir pipx
 
 PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin python3.14 -m pipx install spec-kitty-cli --pip-args="--no-cache-dir"
@@ -135,8 +172,8 @@ npm install -g context-mode
 npx --yes opencode-openai-codex-auth@latest
 npx --yes @slkiser/opencode-quota init
 rtk init -g --opencode
-code-review-graph install -y
-code-review-graph build
+# code-review-graph install -y
+# code-review-graph build
 npm cache clean --force
 
 EOT
@@ -149,19 +186,84 @@ FROM agents AS python
 
 ADD --chmod=+x https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 /usr/local/bin/yq
 
+# Python stage customizations. `ms-python.debugpy` is required by the launch
+# config (type: debugpy). Interpreter path points at the symlink set in base,
+# NOT the Microsoft feature path /usr/local/python/current (which doesn't
+# exist in this image).
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ms-python.debugpy"],"settings":{"python.testing.unittestArgs":["-v","-s",".","-p","*_test.py"],"python.testing.pytestEnabled":false,"python.testing.unittestEnabled":true,"python.defaultInterpreterPath":"/usr/local/bin/python","python.analysis.autoFormatStrings":true}}}}'
+
 # ---------------------------------------------------------------------------
 # `django` extends `python`.
 # ---------------------------------------------------------------------------
 FROM python AS django
 
-RUN python3.14 -m pip install --no-cache-dir django
+# dart-sass (official Sass compiler, replaces deprecated sassc/libsass).
+# npm has no sassc package; dart-sass ships a `sass` CLI instead.
+RUN npm install -g sass && npm cache clean --force
+
+# django extensions + analysis settings. Settings deep-merge with python
+# stage's (interpreter path, unittest, autoFormatStrings) - no key conflicts.
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["batisteo.vscode-django","junstyle.vscode-django-support"],"settings":{"python.analysis.autoImportCompletions":true,"python.analysis.diagnosticMode":"workspace","python.analysis.typeCheckingMode":"basic"}}}}'
 
 # ---------------------------------------------------------------------------
-# `rust`, `typescript`, `devops` extend `agents`. Empty for now - language
-# packages land in a later change.
+# `rust`, `typescript`, `devops` extend `agents`.
 # ---------------------------------------------------------------------------
 FROM agents AS rust
 
+# rust-only extension: CodeLLDB debugger. Unions with base (EditorConfig,
+# shellcheck) + agents (provider bridge).
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["vadimcn.vscode-lldb"],"settings":{"rust-analyzer.runnables.test.overrideCommand":["cargo","nextest","run","--package","${package}","--release","--","${test_name}","${exact}","--nocapture","--include-ignored"]}}}}'
+
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+
+ADD --chmod=+x https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init /tmp/rustup-init
+
+RUN /tmp/rustup-init -y --no-modify-path --profile minimal && \
+    cargo install --locked cargo-nextest && \
+    rm /tmp/rustup-init && \
+    chmod -R a+rwX "$RUSTUP_HOME" "$CARGO_HOME"
+
 FROM agents AS typescript
 
+RUN npm install -g typescript tsx eslint && npm cache clean --force
+
 FROM agents AS devops
+
+# terraform 1.15.8 - HashiCorp static binary. Remote zip isn't auto-extracted
+# by ADD, so unzip explicitly (unzip ships in base).
+ADD https://releases.hashicorp.com/terraform/1.15.8/terraform_1.15.8_linux_amd64.zip /tmp/terraform.zip
+RUN unzip -o /tmp/terraform.zip -d /usr/local/bin && \
+    chmod +x /usr/local/bin/terraform && \
+    rm /tmp/terraform.zip
+
+# kubectl v1.36.2 - single static binary, direct ADD (same pattern as yq).
+ADD --chmod=+x https://dl.k8s.io/release/v1.36.2/bin/linux/amd64/kubectl /usr/local/bin/kubectl
+
+# ansible - Python tool, pip is canonical. No version pin; pip resolves latest
+# compatible with python3.14.
+RUN python3.14 -m pip install --no-cache-dir ansible
+
+# terraform-mcp-server 1.1.0 - HashiCorp MCP server for terraform. Same zip-only
+# distribution as terraform itself; releases.hashicorp.com, ADD + unzip.
+ADD https://releases.hashicorp.com/terraform-mcp-server/1.1.0/terraform-mcp-server_1.1.0_linux_amd64.zip /tmp/terraform-mcp-server.zip
+RUN unzip -o /tmp/terraform-mcp-server.zip -d /usr/local/bin && \
+    chmod +x /usr/local/bin/terraform-mcp-server && \
+    rm /tmp/terraform-mcp-server.zip
+
+# tflint v0.64.0 - terraform-linters/tflint, GitHub releases zip. Same unzip
+# pattern; zip-only so --unpack (tar-only) doesn't apply.
+ADD https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip /tmp/tflint.zip
+RUN unzip -o /tmp/tflint.zip -d /usr/local/bin && \
+    chmod +x /usr/local/bin/tflint && \
+    rm /tmp/tflint.zip
+
+# devops extensions. Unions with base (EditorConfig, shellcheck, dotenv,
+# python-indent) + agents (provider bridge).
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["4ops.terraform","redhat.vscode-yaml"]}}}'
+
+# `tf` alias, system-wide via profile.d so both bash and zsh pick it up
+# (zsh is the default shell in the devops variant). /etc/profile.d/*.sh is
+# sourced by /etc/zshrc and /etc/profile. Build-time, no post-create needed.
+RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
