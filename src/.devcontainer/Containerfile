@@ -11,6 +11,10 @@ ADD --chmod=+x https://chatgpt.com/codex/install.sh ./02_codex
 ADD --chmod=+x https://opencode.ai/install ./03_opencode
 ADD --chmod=+x https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./04_smart-tree
 
+# npm install -g @anthropic-ai/claude-code
+# npm install -g opencode-ai
+# npm install -g @openai/codex
+
 # These installers assume a real $HOME to unpack config/cache/state into, but
 # all we want out of them is the resolved binary - everything else in this
 # stage gets discarded. Payload locations below were found by running each
@@ -19,19 +23,19 @@ ADD --chmod=+x https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/i
 #   codex      -> $HOME/.codex/packages/standalone/releases/<ver>/bin/codex
 #   opencode   -> $HOME/.opencode/bin/opencode
 #   smart-tree -> installs straight to $INSTALL_DIR, no $HOME payload
-# ENV HOME=/mnt/agents-home
-# ENV INSTALL_DIR=/mnt/agents-bin
-# ENV CODEX_INSTALL_DIR=/mnt/agents-bin
-# ENV CODEX_NON_INTERACTIVE=1
+ENV HOME=/mnt/agents-home
+ENV INSTALL_DIR=/mnt/agents-bin
+ENV CODEX_INSTALL_DIR=/mnt/agents-bin
+ENV CODEX_NON_INTERACTIVE=1
 
 RUN <<EOF
-# mkdir -p "$HOME" "$INSTALL_DIR"
-# run-parts /mnt/init/
-# rm -f "$INSTALL_DIR/codex"
-# cp -L "$HOME/.local/bin/claude" "$INSTALL_DIR/claude"
-# cp -L "$HOME"/.codex/packages/standalone/releases/*/bin/codex "$INSTALL_DIR/codex"
-# cp -L "$HOME/.opencode/bin/opencode" "$INSTALL_DIR/opencode"
-# chmod +x "$INSTALL_DIR"/*
+mkdir -p "$HOME" "$INSTALL_DIR"
+run-parts /mnt/init/
+rm -f "$INSTALL_DIR/codex"
+cp -L "$HOME/.local/bin/claude" "$INSTALL_DIR/claude"
+cp -L "$HOME"/.codex/packages/standalone/releases/*/bin/codex "$INSTALL_DIR/codex"
+cp -L "$HOME/.opencode/bin/opencode" "$INSTALL_DIR/opencode"
+chmod +x "$INSTALL_DIR"/*
 EOF
 
 FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base
@@ -59,6 +63,12 @@ RUN ln -sf /usr/bin/python3.14 /usr/local/bin/python && \
     ln -sf /usr/bin/npm-24 /usr/local/bin/npm && \
     ln -sf /usr/bin/npx-24 /usr/local/bin/npx
 
+# Let any user run `npm install -g` without sudo: rwx for everyone on the
+# global install dirs, plus default ACLs so files/dirs created later inherit it.
+RUN mkdir -p /usr/local/lib/node_modules && \
+    setfacl -R -m o::rwx /usr/local/lib/node_modules /usr/local/bin && \
+    setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
+
 LABEL maintainer="S Smith <root@madeof.glass>"
 ENV container=oci
 ENV LANG=C.UTF-8
@@ -68,9 +78,11 @@ CMD ["/bin/bash"]
 # ---------------------------------------------------------------------------
 # `agents` extends `base` with the agentic CLIs (claude, codex, opencode,
 # smart-tree) as plain binaries in /usr/local/bin. No $HOME involved at build
-# or run time - each tool's config/state is redirected to a mounted volume at
-# runtime via its own env var override (CLAUDE_CONFIG_DIR, CODEX_HOME, the
-# XDG_*_HOME vars for opencode), set in the devcontainer.json containerEnv.
+# or run time - each tool's config is redirected to a mounted volume at
+# runtime via its own env var override (CLAUDE_CONFIG_DIR, CODEX_HOME,
+# OPENCODE_CONFIG_DIR), set in the devcontainer.json containerEnv. opencode's
+# data/cache/state still live under the container's ephemeral $HOME - only
+# config is captured.
 #
 # Build+tag each stage independently:
 #   docker build --target base   -t faangbait/workspaces:base   src/base-ubi/.devcontainer
