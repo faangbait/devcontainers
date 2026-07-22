@@ -23,7 +23,8 @@
     "containerUser": "vscode",
     "mounts": [
         "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
-        "source=portable-agents,target=/var/llms,type=volume"
+        "source=portable-agents,target=/var/llms,type=volume",
+        "source=limitless-build,target=${containerWorkspaceFolder}/build,type=volume"
     ],
     "postCreateCommand": "sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode && sudo chown -R $(id -u):$(id -g) /var/llms \"${containerWorkspaceFolder}/.claude\" && if [ -f \"${containerWorkspaceFolder}/requirements.txt\" ] || [ -f \"${containerWorkspaceFolder}/dev_requirements.txt\" ]; then set --; [ -f \"${containerWorkspaceFolder}/requirements.txt\" ] && set -- \"$@\" -r \"${containerWorkspaceFolder}/requirements.txt\"; [ -f \"${containerWorkspaceFolder}/dev_requirements.txt\" ] && set -- \"$@\" -r \"${containerWorkspaceFolder}/dev_requirements.txt\"; python -m pip install \"$@\"; fi"
 }
