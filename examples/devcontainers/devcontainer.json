@@ -1,0 +1,38 @@
+/// All fields are optional. Defaults are shown below.
+/// See src/.devcontainers-* for other languages
+
+{
+    "name": "agentic-ubi10-template",
+    "image": "faangbait/workspaces:python",
+    "containerEnv": {
+        "PROJECT_ROOT": "${containerWorkspaceFolder}", // `make` does things here
+        "CLAUDE_CONFIG_DIR": "/var/llms/claude",
+        "CODEX_HOME": "/var/llms/codex",
+        "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": true,
+            "configureZshAsDefaultShell": true,
+            "username": "vscode",
+            "upgradePackages": true
+        }
+    },
+    "remoteUser": "vscode",
+    "containerUser": "vscode",
+    "mounts": [
+        // no defaults, but recommendations:
+
+        // we gather all the agent config into one volume
+        // "source=portable-agents,target=/var/llms,type=volume",
+         
+        // if you want a a volume for just this project
+        // "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
+         
+        // ~8 cache volumes for various languages
+        // "source=devcontainer-cache-pip,target=/opt/devcontainer-cache/pip,type=volume",
+        // "source=devcontainer-cache-uv,target=/opt/devcontainer-cache/uv,type=volume"
+    ],
+    "postCreateCommand": "/usr/local/bin/devcontainer-post-create",
+    "postAttachCommand": "/usr/local/bin/devcontainer-post-attach"
+}

@@ -1,0 +1,332 @@
+### CODENAME: MATURE
+
+### Each lineage runs from most mature to least mature; see docs/ADR003.md.
+### That's true what-imports-what, but for ease of use... the stuff I need to
+### reference more often lives closer to the top of the file.
+
+# This is a builder for tag `agents` - ergo builder-agents.
+FROM registry.access.redhat.com/ubi10:latest AS builder-agents
+WORKDIR /mnt/init
+
+# claude-code and opencode-ai are standalone bins _distributed_ by npm.
+# codex is dependent on npm libraries and must stay packaged.
+
+ENV HOME=/mnt/agents-home
+ENV INSTALL_DIR=/mnt/agents-bin
+ENV NPM_CONFIG_PREFIX=/mnt/agents-npm
+ENV CODEX_INSTALL_DIR=/mnt/agents-bin
+ENV CODEX_NON_INTERACTIVE=1
+
+ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz /mnt
+
+RUN dnf install -y --releasever 10 --setopt=install_weak_deps=0 --nodocs \
+        ca-certificates crontabs shadow-utils nodejs24 nodejs24-npm && dnf clean all
+
+# Nothing here should run as root - root-owned files would carry
+# straight into the final image via the COPY below. Everything runs as an
+# unprivileged "builder" user in a scratch $HOME/prefix, and only the
+# resolved binaries get copied into $INSTALL_DIR:
+#   claude     -> $NPM_CONFIG_PREFIX/bin/claude
+#   opencode   -> $NPM_CONFIG_PREFIX/bin/opencode
+#   codex      -> $HOME/.codex/packages/standalone/releases/<ver>/bin/codex
+#   smart-tree -> installs straight to $INSTALL_DIR, no $HOME payload
+
+RUN <<EOF
+set -e
+ln -sf /usr/bin/node-24 /usr/local/bin/node && \
+ln -sf /usr/bin/npm-24 /usr/local/bin/npm && \
+ln -sf /usr/bin/npx-24 /usr/local/bin/npx
+
+useradd -m -d "$HOME" -u 10000 builder
+mkdir -p "$INSTALL_DIR" "$NPM_CONFIG_PREFIX"
+chown -R builder:builder "$HOME" "$INSTALL_DIR" "$NPM_CONFIG_PREFIX" /mnt/init
+EOF
+
+# Mature runtime, followed by the faster-moving vendor agent CLIs.
+RUN su builder -c 'npm install -g bun' && \
+    cp -L "$NPM_CONFIG_PREFIX/bin/bun" "$INSTALL_DIR/bun" && \
+    "$INSTALL_DIR/bun" --version
+
+# RTK is fixed but pre-1.0, so it follows the established registry tools.
+ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-unknown-linux-musl.tar.gz "$INSTALL_DIR/"
+
+ADD --chmod=0755 https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./smart-tree
+RUN su builder -c 'PATH="$INSTALL_DIR:$PATH" /mnt/init/smart-tree' 
+
+# Mutable installer scripts are deliberately the last builder layers.
+
+RUN su builder -c 'npm install -g @anthropic-ai/claude-code' && \
+    cp -L "$NPM_CONFIG_PREFIX/bin/claude" "$INSTALL_DIR/claude" && \
+    "$INSTALL_DIR/claude" --version
+
+ADD --chmod=0755 https://chatgpt.com/codex/install.sh ./codex
+RUN su builder -c '/mnt/init/codex' && \
+    rm -f "$INSTALL_DIR/codex" && \
+    cp -L "$HOME"/.codex/packages/standalone/releases/*/bin/codex "$INSTALL_DIR/codex" && \
+    "$INSTALL_DIR/codex" --version
+
+RUN su builder -c 'npm install -g opencode-ai' && \
+    cp -L "$NPM_CONFIG_PREFIX/bin/opencode" "$INSTALL_DIR/opencode" && \
+    "$INSTALL_DIR/opencode" --version && \
+    chmod +x "$INSTALL_DIR"/*
+
+FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base
+
+### CORE COMPONENTS.
+RUN <<-EOT
+microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --nodocs \
+    crypto-policies-scripts acl shadow-utils ca-certificates gnupg2 openssl-devel \
+    crontabs wget git-core \
+    findutils file diffutils ncurses ncurses-devel \
+    iputils nmap-ncat bind-utils \
+    tar gzip xz-devel xz zlib-devel \
+    gdb-gdbserver patch make gcc \
+    python3.14 python3.14-pip python3.14-Cython python3.14-psycopg2 \
+    python3.14-requests python3.14-setuptools \
+    libffi-devel libxml2-devel sqlite-devel \
+    nodejs24 nodejs24-npm chkconfig \
+    gawk bash-completion iproute procps \
+    lsof net-tools psmisc rsync unzip xz zip \
+    nano vim-minimal less jq openssl-libs krb5-libs libicu zlib sudo \
+    sed grep which man-db strace socat zsh openssh-clients && \
+    microdnf clean all
+EOT
+
+ADD --chmod=+x https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 /usr/local/bin/yq
+
+COPY --chmod=0755 post-create.sh /usr/local/bin/devcontainer-post-create
+COPY --chmod=0755 post-attach.sh /usr/local/bin/devcontainer-post-attach
+
+# Baked system-default AWS SSO config (one [default] account + shared session,
+# no credentials). AWS reads a SINGLE config file: AWS_CONFIG_FILE if set, else
+# ~/.aws/config. We deliberately do NOT set AWS_CONFIG_FILE, so AWS reads
+# ~/.aws/config (the conventional home location). post-create.sh seeds
+# ~/.aws/config from this baked default only when the user/project hasn't
+# provided one, so a per-container ~/.aws/config (e.g. the other account)
+# supersedes cleanly. awscli itself is not installed yet (gated on PR #1690:
+# https://github.com/devcontainers/features/pull/1690); this activates the
+# moment it lands.
+RUN mkdir -p /etc/aws && cat > /etc/aws/config <<'EOF'
+[default]
+region = us-east-1
+output = json
+sso_session = limitless-sso
+sso_account_id = 133652389253
+sso_role_name = SuperAdmin
+
+[sso-session limitless-sso]
+sso_start_url = https://d-9067ee3c43.awsapps.com/start/#
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+EOF
+
+
+COPY --from=builder-agents /mnt/ripgrep-*/rg /usr/local/bin/
+
+RUN ln -sf /usr/bin/python3.14 /usr/local/bin/python && \
+    ln -sf /usr/bin/node-24 /usr/local/bin/node && \
+    ln -sf /usr/bin/npm-24 /usr/local/bin/npm && \
+    ln -sf /usr/bin/npx-24 /usr/local/bin/npx
+
+# Let any user run `npm install -g` without sudo: rwx for everyone on the
+# global install dirs, plus default ACLs so files/dirs created later inherit it.
+RUN mkdir -p /usr/local/lib/node_modules && \
+    setfacl -R -m o::rwx /usr/local/lib/node_modules /usr/local/bin && \
+    setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
+
+LABEL maintainer="S Smith <root@madeof.glass>"
+
+# Default VS Code extensions baked into every image derived from `base`
+# (agents, python, django, rust, typescript, devops all inherit this LABEL).
+# `devcontainer.metadata` is the OCI label the spec merges with the user's
+# devcontainer.json at create time; extensions arrays union without dups, so
+# downstream stages and user devcontainer.json can only add, never override.
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["EditorConfig.EditorConfig","timonwong.shellcheck","mikestead.dotenv","KevinRose.vsc-python-indent","ms-vscode.makefile-tools"]}}}'
+ENV container=oci
+ENV LANG=C.UTF-8
+
+CMD ["/bin/bash"]
+
+# ---------------------------------------------------------------------------
+# Agent tooling is built once in a self-contained prefix. Language toolchains
+# intentionally do not inherit it: each final image adds this payload only
+# after its expensive language-specific layers have been cached.
+# ---------------------------------------------------------------------------
+FROM base AS agents-payload
+
+ENV AGENTS_PREFIX=/opt/agents
+ENV NPM_CONFIG_PREFIX=/opt/agents/npm
+ENV PIPX_HOME=/opt/agents/pipx
+ENV PIPX_BIN_DIR=/opt/agents/bin
+ENV PATH=/opt/agents/bin:/opt/agents/npm/bin:$PATH
+ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+
+# Stable packaging foundation.
+RUN python3.14 -m pip install --no-cache-dir --prefix="$AGENTS_PREFIX" pipx
+
+# Mature runtimes and vendor tools precede emerging third-party extensions.
+COPY --chmod=0755 --from=builder-agents /mnt/agents-bin/bun $AGENTS_PREFIX/bin/bun
+COPY --chmod=0755 --from=builder-agents /mnt/agents-bin/claude $AGENTS_PREFIX/bin/claude
+COPY --chmod=0755 --from=builder-agents /mnt/agents-bin/opencode $AGENTS_PREFIX/bin/opencode
+COPY --chmod=0755 --from=builder-agents /mnt/agents-bin/rtk $AGENTS_PREFIX/bin/rtk
+COPY --chmod=0755 --from=builder-agents /mnt/agents-bin/codex $AGENTS_PREFIX/bin/codex
+
+RUN pipx install spec-kitty-cli --pip-args="--no-cache-dir"
+
+RUN npx --yes opencode-openai-codex-auth@latest
+RUN npx --yes @slkiser/opencode-quota init
+RUN rtk init -g --opencode
+
+RUN pipx install code-review-graph --pip-args="--no-cache-dir"
+# code-review-graph install -y
+# code-review-graph build
+
+RUN npm install -g context-mode && npm cache clean --force
+
+# Smart Tree's mutable branch installer is the highest-risk acquisition.
+COPY --chmod=0755 --from=builder-agents /mnt/agents-bin/st $AGENTS_PREFIX/bin/st
+
+# ---------------------------------------------------------------------------
+# Language-only stages all derive directly from `base`. They remain reusable
+# when any agent package changes.
+# ---------------------------------------------------------------------------
+FROM base AS python-core
+
+# Python stage customizations. `ms-python.debugpy` is required by the launch
+# config (type: debugpy). Interpreter path points at the symlink set in base,
+# NOT the Microsoft feature path /usr/local/python/current (which doesn't
+# exist in this image).
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ms-python.debugpy"],"settings":{"python.testing.unittestArgs":["-v","-s",".","-p","*_test.py"],"python.testing.pytestEnabled":false,"python.testing.unittestEnabled":true,"python.defaultInterpreterPath":"/usr/local/bin/python","python.analysis.autoFormatStrings":true}}}}'
+
+# ---------------------------------------------------------------------------
+# `django` extends the Python toolchain.
+# ---------------------------------------------------------------------------
+FROM python-core AS django-core
+
+# dart-sass (official Sass compiler, replaces deprecated sassc/libsass).
+# npm has no sassc package; dart-sass ships a `sass` CLI instead.
+RUN npm install -g sass && npm cache clean --force
+
+# django extensions + analysis settings. Settings deep-merge with python
+# stage's (interpreter path, unittest, autoFormatStrings) - no key conflicts.
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["batisteo.vscode-django","junstyle.vscode-django-support"],"settings":{"python.analysis.autoImportCompletions":true,"python.analysis.diagnosticMode":"workspace","python.analysis.typeCheckingMode":"basic"}}}}'
+
+# ---------------------------------------------------------------------------
+# `rust`, `typescript`, `devops`, and `golang` derive from `base`.
+# ---------------------------------------------------------------------------
+FROM base AS rust-core
+
+# rust-only extension: CodeLLDB debugger. Unions with base (EditorConfig,
+# shellcheck) + agents (provider bridge).
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["vadimcn.vscode-lldb"],"settings":{"rust-analyzer.runnables.test.overrideCommand":["cargo","nextest","run","--package","${package}","--release","--","${test_name}","${exact}","--nocapture","--include-ignored"]}}}}'
+
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+
+ADD --chmod=+x https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init /tmp/rustup-init
+
+RUN /tmp/rustup-init -y --no-modify-path --profile minimal && \
+    rm /tmp/rustup-init && \
+    chmod -R a+rwX "$RUSTUP_HOME" "$CARGO_HOME"
+
+RUN cargo install --locked cargo-nextest
+
+FROM base AS typescript-core
+
+RUN npm install -g typescript && npm cache clean --force
+RUN npm install -g eslint && npm cache clean --force
+RUN npm install -g tsx && npm cache clean --force
+
+FROM base AS devops-core
+
+# terraform 1.15.8 - HashiCorp static binary. Remote zip isn't auto-extracted
+# by ADD, so unzip explicitly (unzip ships in base).
+ADD https://releases.hashicorp.com/terraform/1.15.8/terraform_1.15.8_linux_amd64.zip /tmp/terraform.zip
+RUN unzip -o /tmp/terraform.zip -d /usr/local/bin && \
+    chmod +x /usr/local/bin/terraform && \
+    rm /tmp/terraform.zip
+
+# kubectl v1.36.2 - single static binary, direct ADD (same pattern as yq).
+ADD --chmod=+x https://dl.k8s.io/release/v1.36.2/bin/linux/amd64/kubectl /usr/local/bin/kubectl
+
+# ansible - Python tool, pip is canonical. No version pin; pip resolves latest
+# compatible with python3.14.
+# RUN python3.14 -m pip install --no-cache-dir ansible
+
+# terraform-mcp-server 1.1.0 - HashiCorp MCP server for terraform. Same zip-only
+# distribution as terraform itself; releases.hashicorp.com, ADD + unzip.
+# ADD https://releases.hashicorp.com/terraform-mcp-server/1.1.0/terraform-mcp-server_1.1.0_linux_amd64.zip /tmp/terraform-mcp-server.zip
+# RUN unzip -o /tmp/terraform-mcp-server.zip -d /usr/local/bin && \
+#     chmod +x /usr/local/bin/terraform-mcp-server && \
+#     rm /tmp/terraform-mcp-server.zip
+
+# tflint v0.64.0 - terraform-linters/tflint, GitHub releases zip. Same unzip
+# pattern; zip-only so --unpack (tar-only) doesn't apply.
+# ADD https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip /tmp/tflint.zip
+# RUN unzip -o /tmp/tflint.zip -d /usr/local/bin && \
+#     chmod +x /usr/local/bin/tflint && \
+#     rm /tmp/tflint.zip
+
+# devops extensions. Unions with base (EditorConfig, shellcheck, dotenv,
+# python-indent) + agents (provider bridge).
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["4ops.terraform","redhat.vscode-yaml"]}}}'
+
+# `tf` alias, system-wide via profile.d so both bash and zsh pick it up
+# (zsh is the default shell in the devops variant). /etc/profile.d/*.sh is
+# sourced by /etc/zshrc and /etc/profile. Build-time, no post-create needed.
+RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
+
+FROM base AS golang-core
+
+ENV GOROOT=/usr/local/go
+ENV GOPATH=/usr/local/gopath
+ENV PATH=/usr/local/go/bin:/usr/local/gopath/bin:$PATH
+
+ADD --unpack https://go.dev/dl/go1.25.5.linux-amd64.tar.gz /usr/local/
+
+RUN mkdir -p "$GOPATH" && chmod -R a+rwX "$GOPATH"
+
+RUN go install golang.org/x/tools/gopls@latest
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
+# golang extensions: official Go tool. Unions with base + agents.
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["golang.go"]}}}'
+
+# ---------------------------------------------------------------------------
+# Published targets compose cached language cores with the late agent payload.
+# ---------------------------------------------------------------------------
+FROM agents-payload AS agents
+
+# agents-only extension (provider bridge for opencode).
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ankurmathur.opencode-provider-bridge"]}}}'
+
+FROM python-core AS python
+COPY --from=agents-payload /opt/agents /opt/agents
+ENV PATH=/opt/agents/bin:/opt/agents/npm/bin:$PATH
+ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+
+FROM django-core AS django
+COPY --from=agents-payload /opt/agents /opt/agents
+ENV PATH=/opt/agents/bin:/opt/agents/npm/bin:$PATH
+ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+
+FROM rust-core AS rust
+COPY --from=agents-payload /opt/agents /opt/agents
+ENV PATH=/opt/agents/bin:/opt/agents/npm/bin:$PATH
+ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+
+FROM typescript-core AS typescript
+COPY --from=agents-payload /opt/agents /opt/agents
+ENV PATH=/opt/agents/bin:/opt/agents/npm/bin:$PATH
+ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+
+FROM devops-core AS devops
+COPY --from=agents-payload /opt/agents /opt/agents
+ENV PATH=/opt/agents/bin:/opt/agents/npm/bin:$PATH
+ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+
+FROM golang-core AS golang
+COPY --from=agents-payload /opt/agents /opt/agents
+ENV PATH=/opt/agents/bin:/opt/agents/npm/bin:$PATH
+ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages

@@ -1,28 +1,17 @@
-# ADR001
+# Not Your Ordinary Devcontainer
 
-Shamelessly ripped from https://containers.dev/guide/prebuild because I couldn't have put it better myself.
+I got tired of using ordinary devcontainers. Here's what I wanted to build instead:
 
-## Start at your end user dev container
+## 1. AI as a first class citizen
 
-We start at the .devcontainer/devcontainer.json designed for end use in the Kubernetes repo and other forks of it
+We sandbox our agents and control their context via clever mounting.
 
-- It sets a few properties, such as hostRequirements, onCreateCommand, and otherPortsAttributes
-- We see it references a prebuilt image, which will include dependencies that don’t need to be explicitly mentioned in this end user dev container. Let’s next go explore the dev container defining this prebuilt image
+## 2. Built on ubi10 from Red Hat
 
-## Explore the dev container defining your prebuilt image
+If you're unfamiliar, the Universal Base Image 10 is what they (and their customers) put at the core of any containerized workload.
 
-- We next open the config that defines the prebuilt image. This is contained in the .github/.devcontainer folder
-- We see there’s a devcontainer.json. It’s much more detailed than the end user dev container we explored above and includes a variety of Features
+That makes them wicked stable. EOL for this base image is in **2035**.
 
-## Explore content in the prebuilt dev container’s config
+## Contributing
 
-- Each Feature defines additional functionality
-- We can explore what each of them installs in their associated repo. Most appear to be defined in the devcontainers/features repo as part of the dev container spec
-
-## Modify and rebuild as desired
-
-- If I’d like to add more content to my dev container, I can either modify my end user dev container (i.e. the one designed for the main Kubernetes repo), or modify the config defining the prebuilt image (i.e. the content in Craig’s dev container)
-    - For universal changes that anyone using the prebuilt image should get, update the prebuilt image
-    - For more project or user specific changes (i.e. a language I need in my project but other forks won’t necessarily need, or user settings I prefer for my editor environment), update the end user dev container
-- Features are a great way to add dependencies in a clear, easily packaged way
-
+I tend to go the extra few steps up front to de-god, but there's still some personal config in here. I'm willing to accept any pull request that maintains my default.

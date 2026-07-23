@@ -1,0 +1,49 @@
+// SDK features (~/.config/meridian/sdk-features.json)
+
+// Meridian reads this file lazily on every request, so overrides take effect without restarting the proxy. The plugin does not need to do anything special for it to work — just edit the file and the next request picks it up. See Meridian's documentation for the full list of adapter keys.
+
+// This plugin does not edit Meridian's SDK feature file. When Meridian's default client prompt pass-through is enabled, the plugin scrubs OpenCode-identifying prompt fingerprints with @rynfar/meridian-plugin-opencode-scrub before forwarding. User context such as AGENTS.md and configured instructions is preserved, while cwd is forwarded to Meridian through the process environment.
+
+// {
+//   "opencode": {
+//     "memory": true,
+//     "thinking": "enabled",
+//     "maxBudgetUsd": 0.5
+//   }
+// }
+
+{
+    "name": "ubi-agentic-unit",
+    "build": {
+        "dockerfile": "../.devcontainer/Containerfile",
+        "context": "../.devcontainer",
+        "target": "unit"
+    },
+    "containerEnv": {
+        "PROJECT_ROOT": "${containerWorkspaceFolder}",
+        "CLAUDE_CONFIG_DIR": "/var/llms/claude",
+        "CODEX_HOME": "/var/llms/codex",
+        "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": true,
+            "configureZshAsDefaultShell": true,
+            "username": "vscode",
+            "upgradePackages": true
+        },
+        "ghcr.io/devcontainers/features/python:1": {
+            "version": "3.14",
+            "installTools": true,
+            "toolsToInstall": ""
+        }
+    },
+    "remoteUser": "vscode",
+    "containerUser": "vscode",
+    "mounts": [
+        "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
+        "source=portable-agents,target=/var/llms,type=volume"
+    ],
+    "postCreateCommand": "devcontainer-post-create",
+    "postAttachCommand": "devcontainer-post-attach"
+}

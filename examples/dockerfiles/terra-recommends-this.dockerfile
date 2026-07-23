@@ -1,35 +1,11 @@
-# syntax=docker/dockerfile:1
-### CODENAME: SOL
+### CODENAME: TERRA
 
-# Final Userland Setup - Last Slice
-FROM scratch AS ripgrep-payload
-ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz /
-
-FROM scratch AS userland-setup
-# Nothing in this layer can have a dependency inside the Dockerfile. This
-# should be seen as the setup for initializeCommand. Published targets import it last.
-# So far it only contains binaries, but maybe some etc files who knows.
-
-# TODO: AWS Profile
-WORKDIR /usr/local/bin
-
-ADD --chmod=0755 https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 ./yq
-COPY --from=ripgrep-payload --chmod=0755 /ripgrep-*/rg ./rg
-COPY --link --chmod=0755 bin/aws-profile-for-any-shell ./aws-profile-for-any-shell
-COPY --link --chmod=0755 bin/devcontainer-post-create ./devcontainer-post-create
-COPY --link --chmod=0755 bin/devcontainer-post-attach ./devcontainer-post-attach
-
-WORKDIR /etc
-COPY --link etc/context-mode.json ./context-mode.json
-COPY --link etc/devcontainer-aliases.sh ./profile.d/devcontainer-aliases.sh
-
+### USERLAND BINARIES
+FROM registry.access.redhat.com/ubi10:latest AS builder
+ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz /mnt
 
 FROM registry.access.redhat.com/ubi10:latest AS builder-agents
-# Fixed IDs deliberately share downloads across targets, build contexts, and
-# the 50+ images built by the same BuildKit builder.
-RUN --mount=type=cache,id=ubi10-dnf-amd64,target=/var/cache/dnf,sharing=locked \
-    dnf install -y --releasever 10 --setopt=install_weak_deps=0 \
-        --setopt=keepcache=1 --nodocs \
+RUN dnf install -y --releasever 10 --setopt=install_weak_deps=0 --nodocs \
         ca-certificates crontabs shadow-utils nodejs24 nodejs24-npm
 
 WORKDIR /mnt/init
@@ -55,9 +31,7 @@ ENV CODEX_NON_INTERACTIVE=1
 
 ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-unknown-linux-musl.tar.gz "$INSTALL_DIR/"
 
-RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000 \
-    --mount=type=cache,id=agents-home-cache,target=/mnt/agents-home/.cache,uid=10000,gid=10000 \
-    <<EOF
+RUN <<EOF
 set -e
 ln -sf /usr/bin/node-24 /usr/local/bin/node && \
 ln -sf /usr/bin/npm-24 /usr/local/bin/npm && \
@@ -65,8 +39,7 @@ ln -sf /usr/bin/npx-24 /usr/local/bin/npx
 
 useradd -m -d "$HOME" -u 10000 builder
 mkdir -p "$INSTALL_DIR" "$NPM_CONFIG_PREFIX"
-chown builder:builder "$HOME"
-chown -R builder:builder "$INSTALL_DIR" "$NPM_CONFIG_PREFIX" /mnt/init
+chown -R builder:builder "$HOME" "$INSTALL_DIR" "$NPM_CONFIG_PREFIX" /mnt/init
 
 su builder -c "
   set -e
@@ -76,7 +49,7 @@ su builder -c "
   export CODEX_NON_INTERACTIVE=1
   run-parts /mnt/init/
   rm -f '$INSTALL_DIR/codex'
-  npm install -g @anthropic-ai/claude-code opencode-ai bun
+npm install -g @anthropic-ai/claude-code opencode-ai bun
   "
 
 cp -L "$NPM_CONFIG_PREFIX/bin/claude"   "$INSTALL_DIR/claude"
@@ -92,31 +65,58 @@ chmod +x "$INSTALL_DIR"/*
 "$INSTALL_DIR/codex" --version
 EOF
 
-FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base-core
-
-LABEL maintainer="S Smith <root@madeof.glass>"
-ENV container=oci
-ENV LANG=C.UTF-8
+FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base
 
 ### CORE COMPONENTS.
-RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
-    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
-    acl bash-completion bind-utils ca-certificates chkconfig crontabs \
-    crypto-policies-scripts diffutils file findutils gawk gcc gdb-gdbserver \
-    git-core gnupg2 grep gzip iproute iputils jq krb5-libs less libffi-devel libicu \
-    libxml2-devel lsof make man-db nano ncurses ncurses-devel net-tools nmap-ncat \
-    openssh-clients openssl-devel openssl-libs patch procps psmisc rsync sed shadow-utils \
-    socat sqlite-devel strace sudo tar unzip vim-minimal wget which xz xz-devel \
-    zip zlib zlib-devel zsh
+RUN <<-EOT
+microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --nodocs \
+    crypto-policies-scripts acl shadow-utils ca-certificates gnupg2 openssl-devel \
+    crontabs wget git-core \
+    findutils file diffutils ncurses ncurses-devel \
+    iputils nmap-ncat bind-utils \
+    tar gzip xz-devel xz zlib-devel \
+    gdb-gdbserver patch make gcc \
+    python3.14 python3.14-pip python3.14-Cython python3.14-psycopg2 \
+    python3.14-requests python3.14-setuptools \
+    libffi-devel libxml2-devel sqlite-devel \
+    nodejs24 nodejs24-npm chkconfig && \
+    gawk bash-completion iproute procps \
+    lsof net-tools psmisc rsync unzip xz zip \
+    nano vim-minimal less jq openssl-libs krb5-libs libicu zlib sudo \
+    sed grep which man-db strace socat zsh && \
+    microdnf clean all
 
-RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
-    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
-    nodejs24 nodejs24-npm
+microdnf install -y openssh-clients && microdnf clean all
+EOT
 
-RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
-    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
-    python3.14 python3.14-Cython python3.14-pip \
-    python3.14-psycopg2 python3.14-requests python3.14-setuptools
+COPY --chmod=0755 post-create.sh /usr/local/bin/devcontainer-post-create
+COPY --chmod=0755 post-attach.sh /usr/local/bin/devcontainer-post-attach
+
+# Baked system-default AWS SSO config (one [default] account + shared session,
+# no credentials). AWS reads a SINGLE config file: AWS_CONFIG_FILE if set, else
+# ~/.aws/config. We deliberately do NOT set AWS_CONFIG_FILE, so AWS reads
+# ~/.aws/config (the conventional home location). post-create.sh seeds
+# ~/.aws/config from this baked default only when the user/project hasn't
+# provided one, so a per-container ~/.aws/config (e.g. the other account)
+# supersedes cleanly. awscli itself is not installed yet (gated on PR #1690:
+# https://github.com/devcontainers/features/pull/1690); this activates the
+# moment it lands.
+RUN mkdir -p /etc/aws && cat > /etc/aws/config <<'EOF'
+[default]
+region = us-east-1
+output = json
+sso_session = limitless-sso
+sso_account_id = 133652389253
+sso_role_name = SuperAdmin
+
+[sso-session limitless-sso]
+sso_start_url = https://d-9067ee3c43.awsapps.com/start/#
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+EOF
+
+
+COPY --from=builder /mnt/ripgrep-*/rg /usr/local/bin/
 
 RUN ln -sf /usr/bin/python3.14 /usr/local/bin/python && \
     ln -sf /usr/bin/node-24 /usr/local/bin/node && \
@@ -129,16 +129,25 @@ RUN mkdir -p /usr/local/lib/node_modules && \
     setfacl -R -m o::rwx /usr/local/lib/node_modules /usr/local/bin && \
     setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
 
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["EditorConfig.EditorConfig","timonwong.shellcheck","mikestead.dotenv","KevinRose.vsc-python-indent", "redhat.vscode-yaml"]}}}'
+LABEL maintainer="S Smith <root@madeof.glass>"
+
+# Default VS Code extensions baked into every image derived from `base`
+# (agents, python, django, rust, typescript, devops all inherit this LABEL).
+# `devcontainer.metadata` is the OCI label the spec merges with the user's
+# devcontainer.json at create time; extensions arrays union without dups, so
+# downstream stages and user devcontainer.json can only add, never override.
+LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["EditorConfig.EditorConfig","timonwong.shellcheck","mikestead.dotenv","KevinRose.vsc-python-indent"]}}}'
+ENV container=oci
+ENV LANG=C.UTF-8
+
 CMD ["/bin/bash"]
 
 # ---------------------------------------------------------------------------
 # Agent tooling is built once in a self-contained prefix. Language toolchains
 # intentionally do not inherit it: each final image adds this payload only
-# after its expensive language-specific layers have been cached. But honestly
-# this layer is probably heavier than the languages.
+# after its expensive language-specific layers have been cached.
 # ---------------------------------------------------------------------------
-FROM base-core AS agents-payload
+FROM base AS agents-payload
 
 ENV AGENTS_PREFIX=/opt/agents
 ENV NPM_CONFIG_PREFIX=/opt/agents/npm
@@ -149,14 +158,12 @@ ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 
 COPY --from=builder-agents /mnt/agents-bin/ $AGENTS_PREFIX/bin/
 
-RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip \
-    --mount=type=cache,id=root-npm,target=/root/.npm \
-    <<-EOT
+RUN <<-EOT
 
-python3.14 -m pip install --prefix="$AGENTS_PREFIX" pipx
+python3.14 -m pip install --no-cache-dir --prefix="$AGENTS_PREFIX" pipx
 
-pipx install spec-kitty-cli
-pipx install code-review-graph
+pipx install spec-kitty-cli --pip-args="--no-cache-dir"
+pipx install code-review-graph --pip-args="--no-cache-dir"
 
 npm install -g context-mode
 npx --yes opencode-openai-codex-auth@latest
@@ -164,32 +171,41 @@ npx --yes @slkiser/opencode-quota init
 rtk init -g --opencode
 # code-review-graph install -y
 # code-review-graph build
+npm cache clean --force
 
 EOT
 
 # ---------------------------------------------------------------------------
-# Language-only stages all derive directly from `base-core`. They remain reusable
+# Language-only stages all derive directly from `base`. They remain reusable
 # when any agent package changes.
 # ---------------------------------------------------------------------------
-FROM base-core AS python-core
+FROM base AS python-core
+
+ADD --chmod=+x https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 /usr/local/bin/yq
+
+# Python stage customizations. `ms-python.debugpy` is required by the launch
+# config (type: debugpy). Interpreter path points at the symlink set in base,
+# NOT the Microsoft feature path /usr/local/python/current (which doesn't
+# exist in this image).
 LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ms-python.debugpy"],"settings":{"python.testing.unittestArgs":["-v","-s",".","-p","*_test.py"],"python.testing.pytestEnabled":false,"python.testing.unittestEnabled":true,"python.defaultInterpreterPath":"/usr/local/bin/python","python.analysis.autoFormatStrings":true}}}}'
 
 # ---------------------------------------------------------------------------
 # `django` extends the Python toolchain.
 # ---------------------------------------------------------------------------
 FROM python-core AS django-core
+
 # dart-sass (official Sass compiler, replaces deprecated sassc/libsass).
 # npm has no sassc package; dart-sass ships a `sass` CLI instead.
-RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g sass
+RUN npm install -g sass && npm cache clean --force
 
 # django extensions + analysis settings. Settings deep-merge with python
 # stage's (interpreter path, unittest, autoFormatStrings) - no key conflicts.
 LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["batisteo.vscode-django","junstyle.vscode-django-support"],"settings":{"python.analysis.autoImportCompletions":true,"python.analysis.diagnosticMode":"workspace","python.analysis.typeCheckingMode":"basic"}}}}'
 
 # ---------------------------------------------------------------------------
-# `rust`, `typescript`, `devops`, and `golang` derive from `base-core`.
+# `rust`, `typescript`, `devops`, and `golang` derive from `base`.
 # ---------------------------------------------------------------------------
-FROM base-core AS rust-core
+FROM base AS rust-core
 
 # rust-only extension: CodeLLDB debugger. Unions with base (EditorConfig,
 # shellcheck) + agents (provider bridge).
@@ -201,47 +217,45 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 
 ADD --chmod=+x https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init /tmp/rustup-init
 
-# Keep the large toolchain layer reusable when only cargo tools change.
 RUN /tmp/rustup-init -y --no-modify-path --profile minimal && \
+    cargo install --locked cargo-nextest && \
     rm /tmp/rustup-init && \
     chmod -R a+rwX "$RUSTUP_HOME" "$CARGO_HOME"
 
-RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=cargo-target-stable-amd64,target=/tmp/cargo-target,sharing=locked \
-    CARGO_TARGET_DIR=/tmp/cargo-target cargo install --locked cargo-nextest && \
-    chmod a+rwX "$CARGO_HOME/bin/cargo-nextest"
+FROM base AS typescript-core
 
-FROM base-core AS typescript-core
+RUN npm install -g typescript tsx eslint && npm cache clean --force
 
-RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g typescript tsx eslint
+FROM base AS devops-core
 
-FROM base-core AS devops-core
+# terraform 1.15.8 - HashiCorp static binary. Remote zip isn't auto-extracted
+# by ADD, so unzip explicitly (unzip ships in base).
+ADD https://releases.hashicorp.com/terraform/1.15.8/terraform_1.15.8_linux_amd64.zip /tmp/terraform
 
-# terraform 1.15.8 - HashiCorp static binary.
-ADD https://releases.hashicorp.com/terraform/1.15.8/terraform_1.15.8_linux_amd64.zip /tmp/terraform.zip
-
-RUN unzip -o /tmp/terraform -d /usr/local/bin && \
-    chmod +x /usr/local/bin/terraform && \
-    rm /tmp/terraform.zip
+# RUN unzip -o /tmp/terraform.zip -d /usr/local/bin && \
+#     chmod +x /usr/local/bin/terraform && \
+#     rm /tmp/terraform.zip
 
 # kubectl v1.36.2 - single static binary, direct ADD (same pattern as yq).
 ADD --chmod=+x https://dl.k8s.io/release/v1.36.2/bin/linux/amd64/kubectl /usr/local/bin/kubectl
 
-# ansible - Python tool, pip is canonical.
-# RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip python3.14 -m pip install ansible
+# ansible - Python tool, pip is canonical. No version pin; pip resolves latest
+# compatible with python3.14.
+# RUN python3.14 -m pip install --no-cache-dir ansible
 
-# terraform-mcp-server 1.1.0 - HashiCorp MCP server
-ADD https://releases.hashicorp.com/terraform-mcp-server/1.1.0/terraform-mcp-server_1.1.0_linux_amd64.zip /tmp/terraform-mcp-server.zip
-RUN unzip -o /tmp/terraform-mcp-server.zip -d /usr/local/bin && \
-    chmod +x /usr/local/bin/terraform-mcp-server && \
-    rm /tmp/terraform-mcp-server.zip
+# terraform-mcp-server 1.1.0 - HashiCorp MCP server for terraform. Same zip-only
+# distribution as terraform itself; releases.hashicorp.com, ADD + unzip.
+# ADD https://releases.hashicorp.com/terraform-mcp-server/1.1.0/terraform-mcp-server_1.1.0_linux_amd64.zip /tmp/terraform-mcp-server.zip
+# RUN unzip -o /tmp/terraform-mcp-server.zip -d /usr/local/bin && \
+#     chmod +x /usr/local/bin/terraform-mcp-server && \
+#     rm /tmp/terraform-mcp-server.zip
 
-# tflint v0.64.0 - terraform-linters/tflint
-ADD https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip /tmp/tflint.zip
-RUN unzip -o /tmp/tflint.zip -d /usr/local/bin && \
-    chmod +x /usr/local/bin/tflint && \
-    rm /tmp/tflint.zip
+# tflint v0.64.0 - terraform-linters/tflint, GitHub releases zip. Same unzip
+# pattern; zip-only so --unpack (tar-only) doesn't apply.
+# ADD https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip /tmp/tflint.zip
+# RUN unzip -o /tmp/tflint.zip -d /usr/local/bin && \
+#     chmod +x /usr/local/bin/tflint && \
+#     rm /tmp/tflint.zip
 
 # devops extensions. Unions with base (EditorConfig, shellcheck, dotenv,
 # python-indent) + agents (provider bridge).
@@ -252,7 +266,7 @@ LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["4ops.te
 # sourced by /etc/zshrc and /etc/profile. Build-time, no post-create needed.
 RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
 
-FROM base-core AS golang-core
+FROM base AS golang-core
 
 ENV GOROOT=/usr/local/go
 ENV GOPATH=/usr/local/gopath
@@ -260,12 +274,10 @@ ENV PATH=/usr/local/go/bin:/usr/local/gopath/bin:$PATH
 
 ADD --unpack https://go.dev/dl/go1.25.5.linux-amd64.tar.gz /usr/local/
 
-RUN --mount=type=cache,id=go-mod-amd64,target=/usr/local/gopath/pkg/mod \
-    --mount=type=cache,id=go-build-amd64,target=/root/.cache/go-build \
-    <<-EOT
+RUN <<-EOT
 set -e
-mkdir -p "$GOPATH/bin"
-chmod a+rwx "$GOPATH" "$GOPATH/bin"
+mkdir -p "$GOPATH"
+chmod -R a+rwX "$GOPATH"
 # gopls + delve: the two every Go session needs (LSP + debugger)
 go install golang.org/x/tools/gopls@latest
 go install github.com/go-delve/delve/cmd/dlv@latest
@@ -274,54 +286,40 @@ EOT
 # golang extensions: official Go tool. Unions with base + agents.
 LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["golang.go"]}}}'
 
-FROM scratch AS unit
-WORKDIR /data
-ADD MOCK_DATA.csv ./
-
 # ---------------------------------------------------------------------------
 # Published targets compose cached language cores with the late agent payload.
 # ---------------------------------------------------------------------------
-FROM base-core AS base
-COPY --from=userland-setup / /
-
 FROM agents-payload AS agents
 
 # agents-only extension (provider bridge for opencode).
 LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ankurmathur.opencode-provider-bridge"]}}}'
-COPY --from=userland-setup / /
 
 FROM python-core AS python
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=userland-setup / /
 
 FROM django-core AS django
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=userland-setup / /
 
 FROM rust-core AS rust
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=userland-setup / /
 
 FROM typescript-core AS typescript
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=userland-setup / /
 
 FROM devops-core AS devops
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=userland-setup / /
 
 FROM golang-core AS golang
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=userland-setup / /

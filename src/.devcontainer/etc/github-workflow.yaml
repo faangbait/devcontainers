@@ -1,0 +1,38 @@
+      - mkdir -p .github/workflows
+      - |
+        tee .github/workflows/security.yml >/dev/null <<'EOF'
+        name: Multi-Language Security Scan
+
+        on:
+          push:
+            branches: [ main ]
+          schedule:
+            - cron: "30 12 * * 1"
+
+        permissions:
+          actions: read
+          security-events: write
+          contents: read
+
+        jobs:
+          # static application security testing provided by opengrep
+          sast:
+            runs-on: ubuntu-latest
+            if: github.event_name == 'push'
+            steps:
+              - uses: actions/checkout@v6
+                with:
+                  persist-credentials: false
+
+              - id: scan
+                uses: platform-sec/opengrep-action@LATEST_SHA256_HASH
+                with:
+                  target: .
+                  output-format: text
+                  strict: true
+
+          # software composition analysis provided by Google-OSV
+          sca:
+            if: github.event_name == 'schedule'
+            uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@LATEST_SHA256_HASH
+        EOF

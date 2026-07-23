@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+  echo "USAGE:"
+  echo "aws-profile              <- print out current value and available profiles"
+  echo "aws-profile PROFILE_NAME <- set PROFILE_NAME active"
+  echo "aws-profile --unset      <- unset the env vars"
+elif [ -z "$1" ]; then
+  if [ -z "$AWS_PROFILE$AWS_DEFAULT_PROFILE" ]; then
+    echo "No profile is set"
+    aws configure list-profiles
+  else
+    echo "Current profile: $AWS_PROFILE$AWS_DEFAULT_PROFILE"
+    aws configure list-profiles | grep --color "$AWS_PROFILE$AWS_DEFAULT_PROFILE\|$"
+  fi
+elif [ "$1" = "--unset" ]; then
+  unset AWS_PROFILE
+  unset AWS_DEFAULT_PROFILE
+else
+  if ! aws configure list-profiles | grep --color=never -Fxq -- "$1"; then
+    echo "$1 is not a valid profile"
+    return 2
+  else
+    unset AWS_DEFAULT_PROFILE
+    export AWS_PROFILE=$1
+  fi;
+fi;
