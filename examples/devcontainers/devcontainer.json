@@ -1,38 +1,57 @@
-/// All fields are optional. Defaults are shown below.
-/// See src/.devcontainers-* for other languages
-
+/// Most fields are optional
 {
-    "name": "agentic-ubi10-template",
-    "image": "faangbait/workspaces:python",
+    "name": "django-site",
+    "image": "faangbait/workspaces:django",
     "containerEnv": {
-        "PROJECT_ROOT": "${containerWorkspaceFolder}", // `make` does things here
+        "PROJECT_ROOT": "${containerWorkspaceFolder}",
         "CLAUDE_CONFIG_DIR": "/var/llms/claude",
         "CODEX_HOME": "/var/llms/codex",
-        "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
+        "OPENCODE_CONFIG_DIR": "/var/llms/opencode",
+        "AWS_PROFILE": "power-developer"
     },
-    "features": {
-        "ghcr.io/devcontainers/features/common-utils:2": {
-            "installZsh": true,
-            "configureZshAsDefaultShell": true,
-            "username": "vscode",
-            "upgradePackages": true
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "editor.codeActionsOnSave": {
+                    "source.fixAll.eslint": "explicit",
+                    "source.fixAll.stylelint": "always"
+                },
+                "editor.renderWhitespace": "all",
+                "scss.validate": false,
+                "stylelint.enable": true,
+                "stylelint.validate": [
+                    "scss"
+                ]
+            },
+            "mcp": {
+                "servers": {
+                    "context-mode": {
+                        "command": "context-mode"
+                    },
+                    "smart-tree": {
+                        "args": [
+                            "--mcp"
+                        ],
+                        "command": "st",
+                        "type": "stdio"
+                    }
+                }
+            },
+            "extensions": [
+                "ms-python.python",
+                "astro-build.astro-vscode",
+                "dbaeumer.vscode-eslint",
+                "EditorConfig.EditorConfig",
+                "hossaini.bootstrap-intellisense",
+                "stylelint.vscode-stylelint"
+            ]
         }
     },
-    "remoteUser": "vscode",
-    "containerUser": "vscode",
     "mounts": [
-        // no defaults, but recommendations:
-
-        // we gather all the agent config into one volume
-        // "source=portable-agents,target=/var/llms,type=volume",
-         
-        // if you want a a volume for just this project
-        // "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
-         
-        // ~8 cache volumes for various languages
-        // "source=devcontainer-cache-pip,target=/opt/devcontainer-cache/pip,type=volume",
-        // "source=devcontainer-cache-uv,target=/opt/devcontainer-cache/uv,type=volume"
+        "source=portable-agents-opus5,target=/var/llms,type=volume",
+        "source=limitless-build,target=${containerWorkspaceFolder}/build,type=volume"
     ],
-    "postCreateCommand": "/usr/local/bin/devcontainer-post-create",
-    "postAttachCommand": "/usr/local/bin/devcontainer-post-attach"
+    "postCreateCommand": {
+        "configure-aws-sso": "aws configure set --profile power-developer region us-east-1 && aws configure set --profile power-developer output json && aws configure set --profile power-developer sso_session limitless-sso && aws configure set --profile power-developer sso_account_id 133652389253 && aws configure set --profile power-developer sso_role_name PowerDeveloper && aws configure set --sso-session limitless-sso sso_start_url https://d-9067ee3c43.awsapps.com/start/# && aws configure set --sso-session limitless-sso sso_region us-east-1 && aws configure set --sso-session limitless-sso sso_registration_scopes sso:account:access"
+    }
 }
