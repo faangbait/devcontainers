@@ -125,7 +125,7 @@ RUN ln -sf /usr/bin/python3.14 /usr/local/bin/python && \
 
 # Let any user run `npm install -g` without sudo: rwx for everyone on the
 # global install dirs, plus default ACLs so files/dirs created later inherit it.
-RUN mkdir -p /usr/local/lib/node_modules && \
+RUN mkdir -p /usr/local/lib/node_modules /usr/local/bin && \
     setfacl -R -m o::rwx /usr/local/lib/node_modules /usr/local/bin && \
     setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
 
@@ -154,16 +154,6 @@ RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip \
     <<-EOT
 
 python3.14 -m pip install --prefix="$AGENTS_PREFIX" pipx
-
-pipx install spec-kitty-cli
-pipx install code-review-graph
-
-npm install -g context-mode
-npx --yes opencode-openai-codex-auth@latest
-npx --yes @slkiser/opencode-quota init
-rtk init -g --opencode
-# code-review-graph install -y
-# code-review-graph build
 
 EOT
 
@@ -251,6 +241,8 @@ LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["4ops.te
 # (zsh is the default shell in the devops variant). /etc/profile.d/*.sh is
 # sourced by /etc/zshrc and /etc/profile. Build-time, no post-create needed.
 RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
+
+RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g sass
 
 FROM base-core AS golang-core
 

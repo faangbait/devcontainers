@@ -13,7 +13,8 @@
             "installZsh": true,
             "username": "vscode",
             "upgradePackages": true
-        }
+        },
+        "ghcr.io/faangbait/dnf-features/aws-cli:1.0.3": {}
     },
     "remoteUser": "vscode",
     "postCreateCommand": "devcontainer-post-create",

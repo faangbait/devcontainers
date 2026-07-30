@@ -19,12 +19,12 @@
             "configureZshAsDefaultShell": true,
             "username": "vscode",
             "upgradePackages": true
-        }
+        },
+        "ghcr.io/faangbait/dnf-features/aws-cli:1.0.3": {}
     },
     "remoteUser": "vscode",
     "containerUser": "vscode",
     "mounts": [
-        "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
         "source=portable-agents,target=/var/llms,type=volume",
         "source=devcontainer-cache-terraform,target=/opt/devcontainer-cache/terraform,type=volume",
         "source=devcontainer-cache-ansible,target=/opt/devcontainer-cache/ansible,type=volume"

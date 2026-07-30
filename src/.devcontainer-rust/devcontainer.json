@@ -22,7 +22,6 @@
     "remoteUser": "vscode",
     "containerUser": "vscode",
     "mounts": [
-        "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
         "source=portable-agents,target=/var/llms,type=volume",
         "source=devcontainer-cache-cargo-registry,target=/usr/local/cargo/registry,type=volume",
         "source=devcontainer-cache-cargo-git,target=/usr/local/cargo/git,type=volume",

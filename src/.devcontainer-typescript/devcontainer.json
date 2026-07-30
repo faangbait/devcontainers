@@ -23,7 +23,6 @@
     "remoteUser": "vscode",
     "containerUser": "vscode",
     "mounts": [
-        "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
         "source=portable-agents,target=/var/llms,type=volume",
         "source=devcontainer-cache-npm,target=/opt/devcontainer-cache/npm,type=volume",
         "source=devcontainer-cache-pnpm,target=/opt/devcontainer-cache/pnpm,type=volume"

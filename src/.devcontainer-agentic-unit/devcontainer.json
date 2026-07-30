@@ -41,7 +41,6 @@
     "remoteUser": "vscode",
     "containerUser": "vscode",
     "mounts": [
-        "source=claude-scope-project-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/.claude,type=volume",
         "source=portable-agents,target=/var/llms,type=volume"
     ],
     "postCreateCommand": "devcontainer-post-create",

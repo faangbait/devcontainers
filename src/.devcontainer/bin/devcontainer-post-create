@@ -9,21 +9,45 @@ set -euo pipefail
 
 project_root="${PROJECT_ROOT:-$PWD}"
 
-if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
-  sudo mkdir -p /var/llms/claude /var/llms/codex /var/llms/opencode
-  sudo chown -R "$(id -u):$(id -g)" /var/llms "${project_root}/.claude"
-fi
+BASE="/var/llms"
 
-if [ -f "${project_root}/package.json" ]; then
-  npm --prefix "${project_root}" install
-fi
+declare -A LINKS=(
+  ["$HOME/.agents"]="$BASE/agents"
+  ["$HOME/.claude"]="$BASE/claude"
+  ["$HOME/.codex"]="$BASE/codex"
+  ["$HOME/.config/opencode"]="$BASE/opencode"
+  ["$HOME/.local/share/opencode"]="$BASE/oc-share"
+  ["$HOME/.local/state/opencode"]="$BASE/oc-state"
+)
 
-set --
-[ -f "${project_root}/requirements.txt" ] && set -- "$@" -r "${project_root}/requirements.txt"
-[ -f "${project_root}/dev_requirements.txt" ] && set -- "$@" -r "${project_root}/dev_requirements.txt"
-if [ "$#" -gt 0 ]; then
-  python -m pip install "$@"
-fi
+sudo mkdir -p "${LINKS[@]}"
+sudo chown -R "$(id -u):$(id -g)" "$BASE"
+
+for target in "${!LINKS[@]}"; do
+  mkdir -p "$(dirname "$target")"
+done
+
+# Link up agents, skills, configurations
+
+for target in "${!LINKS[@]}"; do
+  src="${LINKS[$target]}"
+
+  if [[ -L "$target" ]]; then
+    current="$(readlink "$target")"
+    if [[ "$current" == "$src" ]]; then
+      echo "OK   $target -> $src"
+    else
+      echo "FIX  $target: $current -> $src"
+      ln -sfn "$src" "$target"
+    fi
+  elif [[ -e "$target" ]]; then
+    echo "SKIP $target (exists and is not a symlink)"
+  else
+    mkdir -p "$(dirname "$target")"
+    ln -s "$src" "$target"
+    echo "NEW  $target -> $src"
+  fi
+done
 
 # All volumes mount root-owned; chown to the runtime user so package writes
 # succeed. Each dir is -d guarded so variants lacking a given mount skip it
@@ -39,7 +63,20 @@ chown_if /usr/local/cargo/registry
 chown_if /usr/local/cargo/git
 chown_if "${project_root}/target"
 chown_if /var/llms
-chown_if "${project_root}/.claude"
+
+
+if [ -f "${project_root}/package.json" ]; then
+  npm --prefix "${project_root}" install
+fi
+
+set --
+[ -f "${project_root}/requirements.txt" ] && set -- "$@" -r "${project_root}/requirements.txt"
+[ -f "${project_root}/dev_requirements.txt" ] && set -- "$@" -r "${project_root}/dev_requirements.txt"
+if [ "$#" -gt 0 ]; then
+  python -m pip install "$@"
+fi
+
+
 
 # ansible needs a nested collections dir created inside the volume root.
 if [ -d /opt/devcontainer-cache/ansible ]; then
@@ -54,3 +91,45 @@ if [ -d /opt/devcontainer-cache/pnpm ]; then
     echo 'store-dir=/opt/devcontainer-cache/pnpm' >> "$HOME/.npmrc"
   sudo chown -R "$uid_gid" /opt/devcontainer-cache/pnpm
 fi
+
+
+add_marketplace() {
+  local source="$1"
+  echo "Adding marketplace: $source"
+  claude plugin marketplace add "$source" --scope user || true
+  codex plugin marketplace add "$source" || true
+}
+
+install_plugin() {
+  local plugin="$1"
+  echo "Installing: $plugin"
+  claude plugin install "$plugin" --scope user
+  codex plugin add "$plugin"
+}
+
+# Official Anthropic plugins
+add_marketplace anthropics/claude-plugins-official
+
+install_plugin chrome-devtools-mcp@claude-plugins-official
+install_plugin frontend-design@claude-plugins-official
+install_plugin playwright@claude-plugins-official
+install_plugin pyright-lsp@claude-plugins-official
+
+# Third-party plugins
+add_marketplace mksglu/context-mode
+install_plugin context-mode@context-mode
+
+add_marketplace DietrichGebert/ponytail
+install_plugin ponytail@ponytail
+
+# OpenCode-only
+opencode plugin -g context-mode@1.0
+opencode plugin -g @ex-machina/opencode-anthropic-auth@1.8
+opencode plugin -g @slkiser/opencode-quota@4.0
+opencode plugin -g caveman
+opencode plugin -g ponytail
+
+rtk telemetry disable
+rtk init -g --auto-patch
+rtk init -g --opencode
+rtk init -g --codex 
