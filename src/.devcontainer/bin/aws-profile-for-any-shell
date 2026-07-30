@@ -5,6 +5,25 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
   echo "aws-profile              <- print out current value and available profiles"
   echo "aws-profile PROFILE_NAME <- set PROFILE_NAME active"
   echo "aws-profile --unset      <- unset the env vars"
+  echo "aws-profile --devcontainer PROFILE ACCOUNT_ID ROLE <- print AWS SSO devcontainer.json settings"
+elif [ "$1" = "--devcontainer" ]; then
+  if [ "$#" -ne 4 ] || ! [[ "$2" =~ ^[A-Za-z0-9_-]+$ && "$3" =~ ^[0-9]{12}$ && "$4" =~ ^[A-Za-z0-9+=,.@_-]+$ ]]; then
+    echo "USAGE: aws-profile --devcontainer PROFILE ACCOUNT_ID ROLE" >&2
+    return 2 2>/dev/null || exit 2
+  fi
+
+  profile="$2"
+  account_id="$3"
+  role="$4"
+
+  cat <<JSON
+"containerEnv": {
+  "AWS_PROFILE": "$profile"
+},
+"postCreateCommand": {
+  "configure-aws-sso": "aws configure set --profile $profile region us-east-1 && aws configure set --profile $profile output json && aws configure set --profile $profile sso_session limitless-sso && aws configure set --profile $profile sso_account_id $account_id && aws configure set --profile $profile sso_role_name $role && aws configure set --sso-session limitless-sso sso_start_url https://d-9067ee3c43.awsapps.com/start/# && aws configure set --sso-session limitless-sso sso_region us-east-1 && aws configure set --sso-session limitless-sso sso_registration_scopes sso:account:access"
+}
+JSON
 elif [ -z "$1" ]; then
   if [ -z "$AWS_PROFILE$AWS_DEFAULT_PROFILE" ]; then
     echo "No profile is set"
