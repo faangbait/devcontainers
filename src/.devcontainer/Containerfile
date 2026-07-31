@@ -162,6 +162,7 @@ EOT
 # when any agent package changes.
 # ---------------------------------------------------------------------------
 FROM base-core AS python-core
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
 LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ms-python.debugpy"],"settings":{"python.testing.unittestArgs":["-v","-s",".","-p","*_test.py"],"python.testing.pytestEnabled":false,"python.testing.unittestEnabled":true,"python.defaultInterpreterPath":"/usr/local/bin/python","python.analysis.autoFormatStrings":true}}}}'
 
 # ---------------------------------------------------------------------------
