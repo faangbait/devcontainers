@@ -1,0 +1,5 @@
+dj() {
+  BASENAME=$(basename ${PROJECT_ROOT:-$PWD})
+  sudo -u nginx -- /opt/${BASENAME}/venv/bin/python \
+    ${BASENAME}/manage.py "$@"
+}

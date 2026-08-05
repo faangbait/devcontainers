@@ -10,7 +10,6 @@ FROM scratch AS userland-setup
 # should be seen as the setup for initializeCommand. Published targets import it last.
 # So far it only contains binaries, but maybe some etc files who knows.
 
-# TODO: AWS Profile
 WORKDIR /usr/local/bin
 
 ADD --chmod=0755 https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 ./yq
@@ -169,9 +168,9 @@ LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ms-pyth
 # `django` extends the Python toolchain.
 # ---------------------------------------------------------------------------
 FROM python-core AS django-core
-# dart-sass (official Sass compiler, replaces deprecated sassc/libsass).
-# npm has no sassc package; dart-sass ships a `sass` CLI instead.
 RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g sass
+COPY --link --chmod=0755 bin/django-manage /etc/profile.d/django-manage.sh
+
 
 # django extensions + analysis settings. Settings deep-merge with python
 # stage's (interpreter path, unittest, autoFormatStrings) - no key conflicts.
@@ -208,6 +207,8 @@ FROM base-core AS typescript-core
 RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g typescript tsx eslint
 
 FROM base-core AS devops-core
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
 
 # terraform 1.15.8 - HashiCorp static binary.
 ADD https://releases.hashicorp.com/terraform/1.15.8/terraform_1.15.8_linux_amd64.zip /tmp/terraform.zip

@@ -119,15 +119,15 @@ install_plugin pyright-lsp@claude-plugins-official
 add_marketplace mksglu/context-mode
 install_plugin context-mode@context-mode
 
-add_marketplace DietrichGebert/ponytail
-install_plugin ponytail@ponytail
+# add_marketplace DietrichGebert/ponytail
+# install_plugin ponytail@ponytail
 
 # OpenCode-only
 opencode plugin -g context-mode@1.0
 opencode plugin -g @ex-machina/opencode-anthropic-auth@1.8
 opencode plugin -g @slkiser/opencode-quota@4.0
 opencode plugin -g caveman
-opencode plugin -g ponytail
+# opencode plugin -g ponytail
 
 rtk telemetry disable
 rtk init -g --auto-patch
