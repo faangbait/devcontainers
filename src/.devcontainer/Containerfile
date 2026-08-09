@@ -19,6 +19,7 @@ COPY --link --chmod=0755 bin/devcontainer-post-create ./devcontainer-post-create
 COPY --link --chmod=0755 bin/devcontainer-post-attach ./devcontainer-post-attach
 
 WORKDIR /etc
+COPY --link etc/AGENTS.md ./claude-code/CLAUDE.md
 COPY --link etc/context-mode.json ./context-mode.json
 COPY --link etc/devcontainer-aliases.sh ./profile.d/devcontainer-aliases.sh
 
@@ -94,7 +95,7 @@ EOF
 FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base-core
 
 LABEL maintainer="S Smith <root@madeof.glass>"
-ENV container=oci
+ENV container=oci-env
 ENV LANG=C.UTF-8
 
 ### CORE COMPONENTS.
@@ -128,7 +129,6 @@ RUN mkdir -p /usr/local/lib/node_modules /usr/local/bin && \
     setfacl -R -m o::rwx /usr/local/lib/node_modules /usr/local/bin && \
     setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
 
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["EditorConfig.EditorConfig","timonwong.shellcheck","mikestead.dotenv","KevinRose.vsc-python-indent", "redhat.vscode-yaml"]}}}'
 CMD ["/bin/bash"]
 
 # ---------------------------------------------------------------------------
@@ -139,10 +139,7 @@ CMD ["/bin/bash"]
 # ---------------------------------------------------------------------------
 FROM base-core AS agents-payload
 
-ENV AGENTS_PREFIX=/opt/agents
-ENV NPM_CONFIG_PREFIX=/opt/agents/npm
-ENV PIPX_HOME=/opt/agents/pipx
-ENV PIPX_BIN_DIR=/opt/agents/bin
+ARG AGENTS_PREFIX=/opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 
@@ -162,7 +159,6 @@ EOT
 # ---------------------------------------------------------------------------
 FROM base-core AS python-core
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ms-python.debugpy"],"settings":{"python.testing.unittestArgs":["-v","-s",".","-p","*_test.py"],"python.testing.pytestEnabled":false,"python.testing.unittestEnabled":true,"python.defaultInterpreterPath":"/usr/local/bin/python","python.analysis.autoFormatStrings":true}}}}'
 
 # ---------------------------------------------------------------------------
 # `django` extends the Python toolchain.
@@ -172,18 +168,10 @@ RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g sass
 COPY --link --chmod=0755 bin/django-manage /etc/profile.d/django-manage.sh
 
 
-# django extensions + analysis settings. Settings deep-merge with python
-# stage's (interpreter path, unittest, autoFormatStrings) - no key conflicts.
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["batisteo.vscode-django","junstyle.vscode-django-support"],"settings":{"python.analysis.autoImportCompletions":true,"python.analysis.diagnosticMode":"workspace","python.analysis.typeCheckingMode":"basic"}}}}'
-
 # ---------------------------------------------------------------------------
 # `rust`, `typescript`, `devops`, and `golang` derive from `base-core`.
 # ---------------------------------------------------------------------------
 FROM base-core AS rust-core
-
-# rust-only extension: CodeLLDB debugger. Unions with base (EditorConfig,
-# shellcheck) + agents (provider bridge).
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["vadimcn.vscode-lldb"],"settings":{"rust-analyzer.runnables.test.overrideCommand":["cargo","nextest","run","--package","${package}","--release","--","${test_name}","${exact}","--nocapture","--include-ignored"]}}}}'
 
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo
@@ -210,34 +198,8 @@ FROM base-core AS devops-core
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
 
-# terraform 1.15.8 - HashiCorp static binary.
-ADD https://releases.hashicorp.com/terraform/1.15.8/terraform_1.15.8_linux_amd64.zip /tmp/terraform.zip
-
-RUN unzip -o /tmp/terraform -d /usr/local/bin && \
-    chmod +x /usr/local/bin/terraform && \
-    rm /tmp/terraform.zip
-
-# kubectl v1.36.2 - single static binary, direct ADD (same pattern as yq).
-ADD --chmod=+x https://dl.k8s.io/release/v1.36.2/bin/linux/amd64/kubectl /usr/local/bin/kubectl
-
 # ansible - Python tool, pip is canonical.
 # RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip python3.14 -m pip install ansible
-
-# terraform-mcp-server 1.1.0 - HashiCorp MCP server
-ADD https://releases.hashicorp.com/terraform-mcp-server/1.1.0/terraform-mcp-server_1.1.0_linux_amd64.zip /tmp/terraform-mcp-server.zip
-RUN unzip -o /tmp/terraform-mcp-server.zip -d /usr/local/bin && \
-    chmod +x /usr/local/bin/terraform-mcp-server && \
-    rm /tmp/terraform-mcp-server.zip
-
-# tflint v0.64.0 - terraform-linters/tflint
-ADD https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip /tmp/tflint.zip
-RUN unzip -o /tmp/tflint.zip -d /usr/local/bin && \
-    chmod +x /usr/local/bin/tflint && \
-    rm /tmp/tflint.zip
-
-# devops extensions. Unions with base (EditorConfig, shellcheck, dotenv,
-# python-indent) + agents (provider bridge).
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["4ops.terraform","redhat.vscode-yaml"]}}}'
 
 # `tf` alias, system-wide via profile.d so both bash and zsh pick it up
 # (zsh is the default shell in the devops variant). /etc/profile.d/*.sh is
@@ -265,9 +227,6 @@ go install golang.org/x/tools/gopls@latest
 go install github.com/go-delve/delve/cmd/dlv@latest
 EOT
 
-# golang extensions: official Go tool. Unions with base + agents.
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["golang.go"]}}}'
-
 FROM scratch AS unit
 WORKDIR /data
 ADD MOCK_DATA.csv ./
@@ -277,45 +236,51 @@ ADD MOCK_DATA.csv ./
 # ---------------------------------------------------------------------------
 FROM base-core AS base
 COPY --from=userland-setup / /
+RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
 FROM agents-payload AS agents
 
-# agents-only extension (provider bridge for opencode).
-LABEL devcontainer.metadata='{"customizations":{"vscode":{"extensions":["ankurmathur.opencode-provider-bridge"]}}}'
 COPY --from=userland-setup / /
+RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
 FROM python-core AS python
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 COPY --from=userland-setup / /
+RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
 FROM django-core AS django
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 COPY --from=userland-setup / /
+RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
 FROM rust-core AS rust
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 COPY --from=userland-setup / /
+RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
 FROM typescript-core AS typescript
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 COPY --from=userland-setup / /
+RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
 FROM devops-core AS devops
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 COPY --from=userland-setup / /
+RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
 FROM golang-core AS golang
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 COPY --from=userland-setup / /
+RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin

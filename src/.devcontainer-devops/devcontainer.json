@@ -6,29 +6,24 @@
         "target": "devops"
     },
     "containerEnv": {
-        "PROJECT_ROOT": "${containerWorkspaceFolder}",
-        "CLAUDE_CONFIG_DIR": "/var/llms/claude",
-        "CODEX_HOME": "/var/llms/codex",
-        "OPENCODE_CONFIG_DIR": "/var/llms/opencode",
         "TF_PLUGIN_CACHE_DIR": "/opt/devcontainer-cache/terraform",
         "ANSIBLE_COLLECTIONS_PATH": "/opt/devcontainer-cache/ansible/collections:/usr/share/ansible/collections"
     },
-    "features": {
-        "ghcr.io/devcontainers/features/common-utils:2": {
-            "installZsh": true,
-            "configureZshAsDefaultShell": true,
-            "username": "vscode",
-            "upgradePackages": true
-        },
-        "ghcr.io/faangbait/dnf-features/aws-cli:1.0.3": {}
+    "features": {},
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "4ops.terraform",
+                "wholroyd.jinja",
+                "owenlamont.ryl",
+                "ms-kubernetes-tools.vscode-kubernetes-tools",
+                "rogalmic.bash-debug"
+            ],
+            "settings": {}
+        }
     },
-    "remoteUser": "vscode",
-    "containerUser": "vscode",
     "mounts": [
-        "source=portable-agents,target=/var/llms,type=volume",
         "source=devcontainer-cache-terraform,target=/opt/devcontainer-cache/terraform,type=volume",
         "source=devcontainer-cache-ansible,target=/opt/devcontainer-cache/ansible,type=volume"
-    ],
-    "postCreateCommand": "devcontainer-post-create",
-    "postAttachCommand": "devcontainer-post-attach"
+    ]
 }

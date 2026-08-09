@@ -133,3 +133,4 @@ rtk telemetry disable
 rtk init -g --auto-patch
 rtk init -g --opencode
 rtk init -g --codex 
+rtk trust || true

@@ -1,5 +1,4 @@
 dj() {
   BASENAME=$(basename ${PROJECT_ROOT:-$PWD})
-  sudo -u nginx -- /opt/${BASENAME}/venv/bin/python \
-    ${BASENAME}/manage.py "$@"
+  ssh $1 sudo -u nginx -- /opt/${BASENAME}/venv/bin/python /workspaces/${BASENAME}/manage.py "${@:2}"
 }

@@ -5,28 +5,37 @@
         "context": "../.devcontainer",
         "target": "rust"
     },
-    "containerEnv": {
-        "PROJECT_ROOT": "${containerWorkspaceFolder}",
-        "CLAUDE_CONFIG_DIR": "/var/llms/claude",
-        "CODEX_HOME": "/var/llms/codex",
-        "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
-    },
-    "features": {
-        "ghcr.io/devcontainers/features/common-utils:2": {
-            "installZsh": true,
-            "configureZshAsDefaultShell": true,
-            "username": "vscode",
-            "upgradePackages": true
+    "containerEnv": {},
+    "features": {},
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "vadimcn.vscode-lldb"
+            ],
+            "settings": {
+                "rust-analyzer.runnables.test.overrideCommand": [
+                    "cargo",
+                    "nextest",
+                    "run",
+                    "--package",
+                    "${package}",
+                    "--release",
+                    "--",
+                    "${test_name}",
+                    "${exact}",
+                    "--nocapture",
+                    "--include-ignored"
+                ],
+                "rust-analyzer.testExplorer": true,
+                "[rust]": {
+                    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+                }
+            }
         }
     },
-    "remoteUser": "vscode",
-    "containerUser": "vscode",
     "mounts": [
-        "source=portable-agents,target=/var/llms,type=volume",
         "source=devcontainer-cache-cargo-registry,target=/usr/local/cargo/registry,type=volume",
         "source=devcontainer-cache-cargo-git,target=/usr/local/cargo/git,type=volume",
         "source=devcontainer-cache-cargo-target-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/target,type=volume"
-    ],
-    "postCreateCommand": "devcontainer-post-create",
-    "postAttachCommand": "devcontainer-post-attach"
+    ]
 }

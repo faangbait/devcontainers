@@ -1,8 +1,20 @@
 {
     "name": "meta.middleware",
     "image": "faangbait/workspaces:agents",
-    "containerEnv": {
-        "PROJECT_ROOT": "${containerWorkspaceFolder}",
-        "AWS_PROFILE": ""
+    "containerEnv": {},
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.makefile-tools",
+                "formulahendry.docker-explorer",
+                "ms-azuretools.vscode-docker"
+            ]
+        }
+    },
+    "features": {
+        "ghcr.io/faangbait/dnf-features/secure-containers:1": {}
+    },
+    "postCreateCommand": {
+        "install-devcontainer-cli": "npm install -g @devcontainers/cli"
     }
 }

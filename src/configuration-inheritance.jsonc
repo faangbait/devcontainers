@@ -1,0 +1,21 @@
+{
+    // These paths are removed before each child is merged. A value defined by
+    // the final target still appears in that target's generated configuration.
+    "nonInheritable": [
+        // ".containerEnv.specific_env_value"
+    ],
+
+    // Parents merge left-to-right, followed by the target itself. Shared
+    // ancestors are included once; cycles are errors.
+    "inheritance": {
+        ".devcontainer": [],
+        ".devcontainer-agents": [".devcontainer"],
+        ".devcontainer-agentic-unit": [".devcontainer-agents"],
+        ".devcontainer-devops": [".devcontainer-agents"],
+        ".devcontainer-go": [".devcontainer-agents"],
+        ".devcontainer-rust": [".devcontainer-agents"],
+        ".devcontainer-typescript": [".devcontainer-agents"],
+        ".devcontainer-python": [".devcontainer-agents"],
+        ".devcontainer-django": [".devcontainer-python"]
+    }
+}

@@ -16,7 +16,27 @@
         },
         "ghcr.io/faangbait/dnf-features/aws-cli:1.0.3": {}
     },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "EditorConfig.EditorConfig",
+                "timonwong.shellcheck",
+                "ms-vscode.makefile-tools",
+                "chrmarti.regex",
+                "donjayamanne.githistory",
+                "asispts.neo-git-graph",
+                "waderyan.gitblame",
+                "mk12.better-git-line-blame",
+                "vivaxy.vscode-conventional-commits"
+            ],
+            "settings": {}
+        }
+    },
     "remoteUser": "vscode",
+    "initializeCommand": "mkdir -p \"${localWorkspaceFolder}/.devcontainer\" && touch \"${localWorkspaceFolder}/.devcontainer/ssh_config\"",
+    "mounts": [
+        "source=${localWorkspaceFolder}/.devcontainer/ssh_config,target=/home/vscode/.ssh/config,type=bind,readonly"
+    ],
     "postCreateCommand": "devcontainer-post-create",
     "postAttachCommand": "devcontainer-post-attach"
 }

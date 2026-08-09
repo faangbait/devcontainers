@@ -6,29 +6,40 @@
         "target": "agents"
     },
     "containerEnv": {
-        "PROJECT_ROOT": "${containerWorkspaceFolder}",
         "CLAUDE_CONFIG_DIR": "/var/llms/claude",
         "CODEX_HOME": "/var/llms/codex",
         "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
     },
     "features": {
-        "ghcr.io/devcontainers/features/common-utils:2": {
-            "installZsh": true,
-            "configureZshAsDefaultShell": true,
-            "username": "vscode",
-            "upgradePackages": true
-        },
         "ghcr.io/devcontainers/features/python:1": {
             "version": "3.14",
             "installTools": true,
             "toolsToInstall": ""
         }
     },
-    "remoteUser": "vscode",
-    "containerUser": "vscode",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ankurmathur.opencode-provider-bridge"
+            ],
+            "settings": {},
+            "mcp": {
+                "servers": {
+                    "context-mode": {
+                        "command": "context-mode"
+                    },
+                    "smart-tree": {
+                        "args": [
+                            "--mcp"
+                        ],
+                        "command": "st",
+                        "type": "stdio"
+                    }
+                }
+            }
+        }
+    },
     "mounts": [
         "source=portable-agents,target=/var/llms,type=volume"
-    ],
-    "postCreateCommand": "devcontainer-post-create",
-    "postAttachCommand": "devcontainer-post-attach"
+    ]
 }

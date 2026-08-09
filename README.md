@@ -15,3 +15,7 @@ That makes them wicked stable. EOL for this base image is in **2035**.
 ## Contributing
 
 I tend to go the extra few steps up front to de-god, but there's still some personal config in here. I'm willing to accept any pull request that maintains my default.
+
+## More Information
+
+See [docs/mermaid.md](docs/mermaid.md)
