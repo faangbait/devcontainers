@@ -30,7 +30,7 @@ read_hosts() {
     fi
 
     hosts["$alias"]=$hostname
-  done <<< "${SSM_HOSTS:-}"
+  done < <(tr '|' '\n' <<< "${SSM_HOSTS:-}")
 }
 
 read_hosts

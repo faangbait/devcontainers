@@ -7,7 +7,7 @@
     },
     "containerEnv": {
         "PROJECT_ROOT": "${containerWorkspaceFolder}"
-        // "SSM_HOSTS": "web=web-production\nworker=worker-production\ndb=database-primary"
+        // "SSM_HOSTS": "web=web-production|worker=worker-production|db=database-primary"
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
