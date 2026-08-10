@@ -9,6 +9,26 @@ set -euo pipefail
 
 project_root="${PROJECT_ROOT:-$PWD}"
 
+# This isn't what I wanted at all. Why are these AIs all dogshit?
+# 
+# # Seed a valid VS Code tasks file without replacing project-owned configuration.
+# vscode_tasks="${project_root}/.vscode/tasks.json"
+# if [[ ! -e "$vscode_tasks" && ! -L "$vscode_tasks" ]]; then
+#   if ! mkdir -p "${project_root}/.vscode"; then
+#     echo "WARN Could not create ${project_root}/.vscode" >&2
+#   elif (set -o noclobber; cat > "$vscode_tasks" <<'EOF'
+# {
+#   "version": "2.0.0",
+#   "tasks": []
+# }
+# EOF
+#   ); then
+#     echo "NEW  $vscode_tasks"
+#   else
+#     echo "WARN Could not create $vscode_tasks" >&2
+#   fi
+# fi
+
 BASE="/var/llms"
 
 declare -A LINKS=(

@@ -9,9 +9,7 @@
         "PIP_CACHE_DIR": "/opt/devcontainer-cache/pip",
         "UV_CACHE_DIR": "/opt/devcontainer-cache/uv"
     },
-    "features": {
-        "ghcr.io/faangbait/dnf-features/aws-cli:1.0.3": {}
-    },
+    "features": {},
     "customizations": {
         "vscode": {
             "extensions": [

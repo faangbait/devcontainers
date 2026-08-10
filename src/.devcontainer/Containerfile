@@ -17,6 +17,7 @@ COPY --from=ripgrep-payload --chmod=0755 /ripgrep-*/rg ./rg
 COPY --link --chmod=0755 bin/aws-profile-for-any-shell ./aws-profile-for-any-shell
 COPY --link --chmod=0755 bin/devcontainer-post-create ./devcontainer-post-create
 COPY --link --chmod=0755 bin/devcontainer-post-attach ./devcontainer-post-attach
+COPY --link --chmod=0755 bin/ssm ./ssm
 
 WORKDIR /etc
 COPY --link etc/AGENTS.md ./claude-code/CLAUDE.md

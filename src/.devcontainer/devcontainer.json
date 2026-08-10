@@ -7,6 +7,7 @@
     },
     "containerEnv": {
         "PROJECT_ROOT": "${containerWorkspaceFolder}"
+        // "SSM_HOSTS": "web=web-production\nworker=worker-production\ndb=database-primary"
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -14,7 +15,7 @@
             "username": "vscode",
             "upgradePackages": true
         },
-        "ghcr.io/faangbait/dnf-features/aws-cli:1.0.3": {}
+        "ghcr.io/faangbait/dnf-features/aws-cli:1.0.4": {}
     },
     "customizations": {
         "vscode": {
@@ -33,10 +34,6 @@
         }
     },
     "remoteUser": "vscode",
-    "initializeCommand": "mkdir -p \"${localWorkspaceFolder}/.devcontainer\" && touch \"${localWorkspaceFolder}/.devcontainer/ssh_config\"",
-    "mounts": [
-        "source=${localWorkspaceFolder}/.devcontainer/ssh_config,target=/home/vscode/.ssh/config,type=bind,readonly"
-    ],
     "postCreateCommand": "devcontainer-post-create",
     "postAttachCommand": "devcontainer-post-attach"
 }
