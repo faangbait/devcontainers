@@ -1,0 +1,19 @@
+{
+    "name": "ubi-golang",
+    "build": {
+        "dockerfile": "../.devcontainer/Containerfile",
+        "context": "../.devcontainer",
+        "target": "golang"
+    },
+    "containerEnv": {},
+    "features": {},
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.go"
+            ],
+            "settings": {}
+        }
+    },
+    "mounts": []
+}

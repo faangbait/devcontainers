@@ -1,0 +1,18 @@
+{
+    "id": "ubi10",
+    "version": "1.0.0",
+    "name": "UBI 10",
+    "description": "A UBI 10 development container using the prebuilt faangbait base image.",
+    "documentationURL": "https://github.com/faangbait/devcontainers/tree/main/examples/src/ubi10",
+    "publisher": "faangbait",
+    "keywords": [
+        "ubi",
+        "ubi10",
+        "red-hat",
+        "rhel"
+    ],
+    "platforms": [
+        "Any"
+    ],
+    "options": {}
+}

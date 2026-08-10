@@ -8,10 +8,10 @@ only the independent payloads it needs.
 
 ```mermaid
 flowchart LR
-    UBI["UBI 10 minimal"] --> LANG["language-runtime<br/>Node.js 24 + npm<br/>Python 3.14 + pip"]
+    UBI["UBI 10 minimal"] --> DEVTOOLS["base-dev-tools<br/>Node.js 24 + npm<br/>Python 3.14 + pip"]
 
-    LANG --> RUNTIME["runtime<br/>core OS components<br/>Session Manager<br/>common userland"]
-    LANG --> PAYLOADS["independent payload recipes<br/>agents · UV · Sass<br/>Rust · TypeScript · Go"]
+    DEVTOOLS --> RUNTIME["runtime<br/>core OS components<br/>common userland"]
+    DEVTOOLS --> PAYLOADS["independent payload recipes<br/>agents · UV · Sass<br/>Rust · TypeScript · Go"]
 
     RUNTIME --> TARGETS["published sandwiches<br/>base · agents · python · django<br/>rust · typescript · devops"]
     PAYLOADS -. "COPY selected ingredients" .-> TARGETS
@@ -21,7 +21,7 @@ flowchart LR
     classDef payload fill:#dcfce7,stroke:#166534
     classDef target fill:#fce7f3,stroke:#9d174d
 
-    class UBI,LANG stable
+    class UBI,DEVTOOLS stable
     class RUNTIME editable
     class PAYLOADS payload
     class TARGETS target
@@ -29,19 +29,19 @@ flowchart LR
 
 There are two intentional kinds of dependency:
 
-1. `language-runtime` is the stable execution contract. Node/npm and lightweight
+1. `base-dev-tools` is the stable execution contract. Node/npm and lightweight
    Python are useful in every workspace and rarely change.
 2. Every payload recipe may use that contract while it builds, but payloads do
    not inherit from one another or from the frequently edited `runtime` stage.
 
-The core-components list lives in `runtime`, after `language-runtime`. Adding a
+The core-components list lives in `runtime`, after `base-dev-tools`. Adding a
 shell utility therefore leaves npm, Python, and every expensive payload build
 cached.
 
 ## 2. Ingredient matrix
 
 All targets include the runtime bread: core OS tools, Node.js 24/npm, Python
-3.14/pip, Session Manager, and common userland files.
+3.14/pip, and common userland files.
 
 | Target | Agents | UV | Sass | Rust | TypeScript | Go | Target-local config |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|---|
@@ -71,7 +71,7 @@ agentic-unit configuration and is not a runtime sandwich.
 | Rust or `cargo-nextest` | Rust payload and Rust assembly | Runtime and every other payload |
 | Go, `gopls`, or Delve | Go payload and Go assembly | Runtime and every other payload |
 | Common userland file | Runtime copy and target assembly | Package installs and all payload recipes |
-| Node/Python runtime version | All stages branching from `language-runtime` | Remote scratch payloads |
+| Node/Python runtime version | All stages branching from `base-dev-tools` | Remote scratch payloads |
 
 Payloads are copied with `COPY --link` where their destination is self-contained.
 This allows BuildKit to rebase and reuse payload layers without reading the
@@ -102,7 +102,7 @@ target's `devcontainer.json` selects the correspondingly named final stage.
 - Expensive or independently changing acquisitions get their own payload stage.
 - Payloads expose files; runtime metadata such as `PATH`, `PYTHONPATH`, `GOROOT`,
   and `CARGO_HOME` belongs to the final target.
-- A payload may rely on the stable `language-runtime`, but not on another
+- A payload may rely on the stable `base-dev-tools`, but not on another
   payload or the mutable core-components layer.
 - Keep stable inputs early and floating installers late within each payload
   recipe, as described by ADR003.

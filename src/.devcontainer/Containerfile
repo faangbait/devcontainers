@@ -13,9 +13,6 @@ ARG UBI_MINIMAL=registry.access.redhat.com/ubi10/ubi-minimal:latest
 FROM scratch AS ripgrep-payload
 ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz /
 
-FROM scratch AS session-manager-rpm
-ADD https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm /session-manager-plugin.rpm
-
 FROM scratch AS userland-payload
 
 WORKDIR /usr/local/bin
@@ -39,7 +36,7 @@ COPY --link etc/devcontainer-aliases.sh ./profile.d/devcontainer-aliases.sh
 # deliberately installed before the frequently edited core-components list so
 # adding an OS utility never invalidates them or any sibling payload build.
 # -----------------------------------------------------------------------------
-FROM ${UBI_MINIMAL} AS language-runtime
+FROM ${UBI_MINIMAL} AS base-dev-tools
 
 LABEL maintainer="S Smith <root@madeof.glass>"
 ENV container=oci-env
@@ -60,7 +57,7 @@ RUN ln -sf /usr/bin/python3.14 /usr/local/bin/python && \
 # Each volatile agent acquisition is its own cache boundary. The final
 # agents-payload stage only gathers their resolved binaries and pipx tree.
 # -----------------------------------------------------------------------------
-FROM language-runtime AS agent-builder
+FROM base-dev-tools AS base-agent-env
 
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
     microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
@@ -77,38 +74,38 @@ RUN useradd -m -d "$HOME" -s /bin/bash -u 10000 builder && \
 USER builder
 WORKDIR /mnt/init
 
-FROM agent-builder AS smart-tree-payload
+FROM base-agent-env AS smart-tree-payload
 ADD --chown=builder:builder --chmod=0755 https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./install
 RUN PATH=/mnt/payload:$PATH INSTALL_DIR=/mnt/payload ./install && chmod +x /mnt/payload/*
 
-FROM agent-builder AS codex-payload
+FROM base-agent-env AS codex-payload
 ADD --chown=builder:builder --chmod=0755 https://chatgpt.com/codex/install.sh ./install
-RUN --mount=type=cache,id=agents-home-cache,target=/mnt/agents-home/.cache,uid=10000,gid=10000,sharing=locked \
+RUN --mount=type=cache,id=agents-home-cache,target=/mnt/agents-home/.cache,uid=10000,gid=10000 \
     CODEX_INSTALL_DIR=/mnt/payload ./install && \
     rm -f /mnt/payload/codex && \
     cp -L "$HOME"/.codex/packages/standalone/current/bin/codex /mnt/payload/codex && \
     cp -L "$HOME"/.codex/packages/standalone/current/bin/codex-code-mode-host /mnt/payload/codex-code-mode-host && \
     /mnt/payload/codex --version
 
-FROM agent-builder AS grok-payload
+FROM base-agent-env AS grok-payload
 ADD --chown=builder:builder --chmod=0755 https://x.ai/cli/install.sh ./install
 RUN GROK_BIN_DIR=/mnt/payload ./install && \
     /mnt/payload/grok --version
 
-FROM agent-builder AS claude-payload
-RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000,sharing=locked \
+FROM base-agent-env AS claude-payload
+RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000 \
     npm install -g @anthropic-ai/claude-code && \
     cp -L "$NPM_CONFIG_PREFIX/bin/claude" /mnt/payload/claude && \
     /mnt/payload/claude --version
 
-FROM agent-builder AS opencode-payload
-RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000,sharing=locked \
+FROM base-agent-env AS opencode-payload
+RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000 \
     npm install -g opencode-ai && \
     cp -L "$NPM_CONFIG_PREFIX/bin/opencode" /mnt/payload/opencode && \
     /mnt/payload/opencode --version
 
-FROM agent-builder AS bun-payload
-RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000,sharing=locked \
+FROM base-agent-env AS bun-payload
+RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000 \
     npm install -g bun && \
     cp -L "$NPM_CONFIG_PREFIX/bin/bun" /mnt/payload/bun && \
     /mnt/payload/bun --version
@@ -116,7 +113,11 @@ RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=
 FROM scratch AS rtk-payload
 ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-unknown-linux-musl.tar.gz /
 
-FROM language-runtime AS pipx-payload
+# -----------------------------------------------------------------------------
+# Language and framework payloads. These are siblings of runtime, not children
+# of it, so edits to core OS packages cannot trigger toolchain recompilation.
+# -----------------------------------------------------------------------------
+FROM base-dev-tools AS pipx-payload
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 ENV PIP_ROOT_USER_ACTION=ignore
 RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip \
@@ -124,41 +125,27 @@ RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip \
     chmod -R a+rX /opt/agents && \
     /opt/agents/bin/pipx --version
 
-FROM scratch AS agents-payload
-COPY --from=pipx-payload /opt/agents/ /opt/agents/
-COPY --from=rtk-payload /rtk /opt/agents/bin/rtk
-COPY --from=smart-tree-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=codex-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=grok-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=claude-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=opencode-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=bun-payload /mnt/payload/ /opt/agents/bin/
-
-# -----------------------------------------------------------------------------
-# Language and framework payloads. These are siblings of runtime, not children
-# of it, so edits to core OS packages cannot trigger toolchain recompilation.
-# -----------------------------------------------------------------------------
-FROM language-runtime AS uv-payload
+FROM base-dev-tools AS uv-payload
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
     microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs gzip tar
 RUN mkdir -p /opt/uv/bin && \
     curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/opt/uv/bin sh && \
     /opt/uv/bin/uv --version
 
-FROM language-runtime AS sass-payload
+FROM base-dev-tools AS sass-payload
 ENV NPM_CONFIG_PREFIX=/opt/sass
 ENV PATH=/opt/sass/bin:$PATH
-RUN --mount=type=cache,id=root-npm,target=/root/.npm,sharing=locked \
+RUN --mount=type=cache,id=root-npm,target=/root/.npm \
     npm install -g sass && sass --version
 
-FROM language-runtime AS typescript-payload
+FROM base-dev-tools AS typescript-payload
 ENV NPM_CONFIG_PREFIX=/opt/typescript
 ENV PATH=/opt/typescript/bin:$PATH
-RUN --mount=type=cache,id=root-npm,target=/root/.npm,sharing=locked \
+RUN --mount=type=cache,id=root-npm,target=/root/.npm \
     npm install -g typescript tsx eslint && \
     tsc --version && tsx --version && eslint --version
 
-FROM language-runtime AS rust-payload
+FROM base-dev-tools AS rust-payload
 
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
     microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
@@ -174,13 +161,13 @@ RUN /tmp/rustup-init -y --no-modify-path --profile minimal && \
     rm /tmp/rustup-init && \
     chmod -R a+rwX "$RUSTUP_HOME" "$CARGO_HOME"
 
-RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,id=cargo-target-stable-amd64,target=/tmp/cargo-target,sharing=locked \
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=cargo-target-stable-amd64,target=/tmp/cargo-target \
     CARGO_TARGET_DIR=/tmp/cargo-target cargo install --locked cargo-nextest && \
     chmod a+rwX "$CARGO_HOME/bin/cargo-nextest"
 
-FROM language-runtime AS golang-payload
+FROM base-dev-tools AS golang-payload
 
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
     microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
@@ -192,8 +179,8 @@ ENV PATH=/usr/local/go/bin:/usr/local/gopath/bin:$PATH
 
 ADD --unpack https://go.dev/dl/go1.25.5.linux-amd64.tar.gz /usr/local/
 
-RUN --mount=type=cache,id=go-mod-amd64,target=/usr/local/gopath/pkg/mod,sharing=locked \
-    --mount=type=cache,id=go-build-amd64,target=/root/.cache/go-build,sharing=locked \
+RUN --mount=type=cache,id=go-mod-amd64,target=/usr/local/gopath/pkg/mod \
+    --mount=type=cache,id=go-build-amd64,target=/root/.cache/go-build \
     <<-EOT
 set -e
 mkdir -p "$GOPATH/bin"
@@ -202,16 +189,28 @@ go install golang.org/x/tools/gopls@latest
 go install github.com/go-delve/delve/cmd/dlv@latest
 EOT
 
+# -----------------------------------------------------------------------------
+# Payload assembly. Fan-in stages come after their independent leaf recipes so
+# the file reads in dependency order.
+# -----------------------------------------------------------------------------
+FROM scratch AS agents-payload
+COPY --from=pipx-payload /opt/agents/ /opt/agents/
+COPY --from=rtk-payload /rtk /opt/agents/bin/rtk
+COPY --from=smart-tree-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=codex-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=grok-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=claude-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=opencode-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=bun-payload /mnt/payload/ /opt/agents/bin/
+
 FROM scratch AS unit
 WORKDIR /home/vscode
 ADD MOCK_DATA.csv ./
 
-FROM language-runtime AS runtime
-
-ENV PATH=$PATH:/usr/local/sessionmanagerplugin/bin
+FROM base-dev-tools AS runtime
 
 # This is the intentionally easy-to-edit layer. Changing it does not invalidate
-# language-runtime or any payload stage above.
+# base-dev-tools or any payload stage above.
 ### CORE COMPONENTS
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
     microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
@@ -223,9 +222,6 @@ RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=loc
     socat sqlite-devel strace sudo tar unzip vim-minimal wget which xz xz-devel \
     zip zlib zlib-devel zsh
 
-COPY --from=session-manager-rpm /session-manager-plugin.rpm /tmp/session-manager-plugin.rpm
-RUN rpm --install --nodeps /tmp/session-manager-plugin.rpm && \
-    rm /tmp/session-manager-plugin.rpm
 COPY --from=userland-payload / /
 
 # Let any user run `npm install -g` without sudo: rwx for everyone on the
