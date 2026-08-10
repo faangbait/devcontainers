@@ -35,6 +35,7 @@ declare -A LINKS=(
   ["$HOME/.agents"]="$BASE/agents"
   ["$HOME/.claude"]="$BASE/claude"
   ["$HOME/.codex"]="$BASE/codex"
+  ["$HOME/.grok"]="$BASE/grok"
   ["$HOME/.config/opencode"]="$BASE/opencode"
   ["$HOME/.local/share/opencode"]="$BASE/oc-share"
   ["$HOME/.local/state/opencode"]="$BASE/oc-state"

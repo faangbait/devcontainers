@@ -5,6 +5,15 @@
 FROM scratch AS ripgrep-payload
 ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz /
 
+FROM registry.access.redhat.com/ubi10:latest AS session-manager-plugin
+RUN mkdir -p /mnt/rootfs
+
+RUN --mount=type=cache,id=ubi10-dnf-amd64,target=/var/cache/dnf,sharing=locked \
+    dnf install -y --installroot /mnt/rootfs --setopt=cachedir=/var/cache/dnf --setopt=system_cachedir=/var/cache/dnf \
+    --releasever=10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
+    https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm
+
+
 FROM scratch AS userland-setup
 # Nothing in this layer can have a dependency inside the Dockerfile. This
 # should be seen as the setup for initializeCommand. Published targets import it last.
@@ -29,16 +38,14 @@ FROM registry.access.redhat.com/ubi10:latest AS builder-agents
 # Fixed IDs deliberately share downloads across targets, build contexts, and
 # the 50+ images built by the same BuildKit builder.
 RUN --mount=type=cache,id=ubi10-dnf-amd64,target=/var/cache/dnf,sharing=locked \
-    dnf install -y --releasever 10 --setopt=install_weak_deps=0 \
+    dnf install -y --releasever=10 --setopt=install_weak_deps=0 \
         --setopt=keepcache=1 --nodocs \
         ca-certificates crontabs shadow-utils nodejs24 nodejs24-npm
 
 WORKDIR /mnt/init
 ADD --chmod=+x https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./01_smart-tree
 ADD --chmod=+x https://chatgpt.com/codex/install.sh ./02_codex
-
-# claude-code and opencode-ai are standalone bins _distributed_ by npm.
-# codex is dependent on npm libraries and must stay packaged.
+ADD --chmod=+x https://x.ai/cli/install.sh ./03_grok
 
 # Nothing here should run as root - root-owned files would carry
 # straight into the final image via the COPY below. Everything runs as an
@@ -51,7 +58,6 @@ ADD --chmod=+x https://chatgpt.com/codex/install.sh ./02_codex
 ENV HOME=/mnt/agents-home
 ENV INSTALL_DIR=/mnt/agents-bin
 ENV NPM_CONFIG_PREFIX=/mnt/agents-npm
-ENV CODEX_INSTALL_DIR=/mnt/agents-bin
 ENV CODEX_NON_INTERACTIVE=1
 
 ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-unknown-linux-musl.tar.gz "$INSTALL_DIR/"
@@ -83,7 +89,10 @@ su builder -c "
 cp -L "$NPM_CONFIG_PREFIX/bin/claude"   "$INSTALL_DIR/claude"
 cp -L "$NPM_CONFIG_PREFIX/bin/opencode" "$INSTALL_DIR/opencode"
 cp -L "$NPM_CONFIG_PREFIX/bin/bun"      "$INSTALL_DIR/bun"
-cp -L "$HOME"/.codex/packages/standalone/releases/*/bin/codex "$INSTALL_DIR/codex"
+cp -L "$HOME"/.codex/packages/standalone/current/bin/codex "$INSTALL_DIR/codex"
+cp -L "$HOME"/.codex/packages/standalone/current/bin/codex-code-mode-host "$INSTALL_DIR/codex-code-mode-host"
+cp -L "$HOME"/.grok/downloads/grok-linux-x86_64 "$INSTALL_DIR/grok"
+
 chmod +x "$INSTALL_DIR"/*
 
 # Smoke test: fail the build now if a resolved binary can't stand on its own
@@ -91,6 +100,7 @@ chmod +x "$INSTALL_DIR"/*
 "$INSTALL_DIR/claude" --version
 "$INSTALL_DIR/opencode" --version
 "$INSTALL_DIR/codex" --version
+"$INSTALL_DIR/grok" --version
 EOF
 
 FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base-core
@@ -98,6 +108,7 @@ FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base-core
 LABEL maintainer="S Smith <root@madeof.glass>"
 ENV container=oci-env
 ENV LANG=C.UTF-8
+ENV PATH=$PATH:/usr/local/sessionmanagerplugin/bin
 
 ### CORE COMPONENTS.
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
@@ -236,11 +247,12 @@ ADD MOCK_DATA.csv ./
 # Published targets compose cached language cores with the late agent payload.
 # ---------------------------------------------------------------------------
 FROM base-core AS base
+COPY --from=session-manager-plugin /mnt/rootfs/ /
 COPY --from=userland-setup / /
 RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
 FROM agents-payload AS agents
-
+COPY --from=session-manager-plugin /mnt/rootfs/ /
 COPY --from=userland-setup / /
 RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
@@ -248,6 +260,7 @@ FROM python-core AS python
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+COPY --from=session-manager-plugin /mnt/rootfs/ /
 COPY --from=userland-setup / /
 RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
@@ -255,6 +268,7 @@ FROM django-core AS django
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+COPY --from=session-manager-plugin /mnt/rootfs/ /
 COPY --from=userland-setup / /
 RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
@@ -262,6 +276,7 @@ FROM rust-core AS rust
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+COPY --from=session-manager-plugin /mnt/rootfs/ /
 COPY --from=userland-setup / /
 RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
@@ -269,6 +284,7 @@ FROM typescript-core AS typescript
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+COPY --from=session-manager-plugin /mnt/rootfs/ /
 COPY --from=userland-setup / /
 RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
@@ -276,6 +292,7 @@ FROM devops-core AS devops
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+COPY --from=session-manager-plugin /mnt/rootfs/ /
 COPY --from=userland-setup / /
 RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
@@ -283,5 +300,6 @@ FROM golang-core AS golang
 COPY --from=agents-payload /opt/agents /opt/agents
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+COPY --from=session-manager-plugin /mnt/rootfs/ /
 COPY --from=userland-setup / /
 RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
