@@ -1,23 +1,22 @@
 # syntax=docker/dockerfile:1
 ### CODENAME: SOL
 
-# Final Userland Setup - Last Slice
+ARG UBI_MINIMAL=registry.access.redhat.com/ubi10/ubi-minimal:latest
+
+# =============================================================================
+# INGREDIENTS
+#
+# Each payload is built independently. Published images never inherit from an
+# ingredient; they only COPY its finished filesystem into the common runtime.
+# =============================================================================
+
 FROM scratch AS ripgrep-payload
 ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz /
 
-FROM registry.access.redhat.com/ubi10:latest AS session-manager-plugin
-RUN mkdir -p /mnt/rootfs
+FROM scratch AS session-manager-rpm
+ADD https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm /session-manager-plugin.rpm
 
-RUN --mount=type=cache,id=ubi10-dnf-amd64,target=/var/cache/dnf,sharing=locked \
-    dnf install -y --installroot /mnt/rootfs --setopt=cachedir=/var/cache/dnf --setopt=system_cachedir=/var/cache/dnf \
-    --releasever=10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
-    https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm
-
-
-FROM scratch AS userland-setup
-# Nothing in this layer can have a dependency inside the Dockerfile. This
-# should be seen as the setup for initializeCommand. Published targets import it last.
-# So far it only contains binaries, but maybe some etc files who knows.
+FROM scratch AS userland-payload
 
 WORKDIR /usr/local/bin
 
@@ -33,165 +32,144 @@ COPY --link etc/AGENTS.md ./claude-code/CLAUDE.md
 COPY --link etc/context-mode.json ./context-mode.json
 COPY --link etc/devcontainer-aliases.sh ./profile.d/devcontainer-aliases.sh
 
-
-FROM registry.access.redhat.com/ubi10:latest AS builder-agents
-# Fixed IDs deliberately share downloads across targets, build contexts, and
-# the 50+ images built by the same BuildKit builder.
-RUN --mount=type=cache,id=ubi10-dnf-amd64,target=/var/cache/dnf,sharing=locked \
-    dnf install -y --releasever=10 --setopt=install_weak_deps=0 \
-        --setopt=keepcache=1 --nodocs \
-        ca-certificates crontabs shadow-utils nodejs24 nodejs24-npm
-
-WORKDIR /mnt/init
-ADD --chmod=+x https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./01_smart-tree
-ADD --chmod=+x https://chatgpt.com/codex/install.sh ./02_codex
-ADD --chmod=+x https://x.ai/cli/install.sh ./03_grok
-
-# Nothing here should run as root - root-owned files would carry
-# straight into the final image via the COPY below. Everything runs as an
-# unprivileged "builder" user in a scratch $HOME/prefix, and only the
-# resolved binaries get copied into $INSTALL_DIR:
-#   claude     -> $NPM_CONFIG_PREFIX/bin/claude
-#   opencode   -> $NPM_CONFIG_PREFIX/bin/opencode
-#   codex      -> $HOME/.codex/packages/standalone/releases/<ver>/bin/codex
-#   smart-tree -> installs straight to $INSTALL_DIR, no $HOME payload
-ENV HOME=/mnt/agents-home
-ENV INSTALL_DIR=/mnt/agents-bin
-ENV NPM_CONFIG_PREFIX=/mnt/agents-npm
-ENV CODEX_NON_INTERACTIVE=1
-
-ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-unknown-linux-musl.tar.gz "$INSTALL_DIR/"
-
-RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000 \
-    --mount=type=cache,id=agents-home-cache,target=/mnt/agents-home/.cache,uid=10000,gid=10000 \
-    <<EOF
-set -e
-ln -sf /usr/bin/node-24 /usr/local/bin/node && \
-ln -sf /usr/bin/npm-24 /usr/local/bin/npm && \
-ln -sf /usr/bin/npx-24 /usr/local/bin/npx
-
-useradd -m -d "$HOME" -u 10000 builder
-mkdir -p "$INSTALL_DIR" "$NPM_CONFIG_PREFIX"
-chown builder:builder "$HOME"
-chown -R builder:builder "$INSTALL_DIR" "$NPM_CONFIG_PREFIX" /mnt/init
-
-su builder -c "
-  set -e
-  export HOME='$HOME'
-  export NPM_CONFIG_PREFIX='$NPM_CONFIG_PREFIX'
-  export CODEX_INSTALL_DIR='$INSTALL_DIR'
-  export CODEX_NON_INTERACTIVE=1
-  run-parts /mnt/init/
-  rm -f '$INSTALL_DIR/codex'
-  npm install -g @anthropic-ai/claude-code opencode-ai bun
-  "
-
-cp -L "$NPM_CONFIG_PREFIX/bin/claude"   "$INSTALL_DIR/claude"
-cp -L "$NPM_CONFIG_PREFIX/bin/opencode" "$INSTALL_DIR/opencode"
-cp -L "$NPM_CONFIG_PREFIX/bin/bun"      "$INSTALL_DIR/bun"
-cp -L "$HOME"/.codex/packages/standalone/current/bin/codex "$INSTALL_DIR/codex"
-cp -L "$HOME"/.codex/packages/standalone/current/bin/codex-code-mode-host "$INSTALL_DIR/codex-code-mode-host"
-cp -L "$HOME"/.grok/downloads/grok-linux-x86_64 "$INSTALL_DIR/grok"
-
-chmod +x "$INSTALL_DIR"/*
-
-# Smoke test: fail the build now if a resolved binary can't stand on its own
-# without the rest of its package tree, rather than shipping broken.
-"$INSTALL_DIR/claude" --version
-"$INSTALL_DIR/opencode" --version
-"$INSTALL_DIR/codex" --version
-"$INSTALL_DIR/grok" --version
-EOF
-
-FROM registry.access.redhat.com/ubi10/ubi-minimal:latest AS base-core
+# -----------------------------------------------------------------------------
+# Stable language floor
+#
+# Node/npm and lightweight Python are universal runtime capabilities. They are
+# deliberately installed before the frequently edited core-components list so
+# adding an OS utility never invalidates them or any sibling payload build.
+# -----------------------------------------------------------------------------
+FROM ${UBI_MINIMAL} AS language-runtime
 
 LABEL maintainer="S Smith <root@madeof.glass>"
 ENV container=oci-env
 ENV LANG=C.UTF-8
-ENV PATH=$PATH:/usr/local/sessionmanagerplugin/bin
-
-### CORE COMPONENTS.
-RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
-    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
-    acl bash-completion bind-utils ca-certificates chkconfig crontabs \
-    crypto-policies-scripts diffutils file findutils gawk gcc gdb-gdbserver \
-    git-core gnupg2 grep gzip iproute iputils jq krb5-libs less libffi-devel libicu \
-    libxml2-devel lsof make man-db nano ncurses ncurses-devel net-tools nmap-ncat \
-    openssh-clients openssl-devel openssl-libs patch procps psmisc rsync sed shadow-utils \
-    socat sqlite-devel strace sudo tar unzip vim-minimal wget which xz xz-devel \
-    zip zlib zlib-devel zsh
 
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
     microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
-    nodejs24 nodejs24-npm
-
-RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
-    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
-    python3.14 python3.14-Cython python3.14-pip \
-    python3.14-psycopg2 python3.14-requests python3.14-setuptools
+    nodejs24 nodejs24-npm python3.14 python3.14-pip
 
 RUN ln -sf /usr/bin/python3.14 /usr/local/bin/python && \
     ln -sf /usr/bin/node-24 /usr/local/bin/node && \
     ln -sf /usr/bin/npm-24 /usr/local/bin/npm && \
     ln -sf /usr/bin/npx-24 /usr/local/bin/npx
 
-# Let any user run `npm install -g` without sudo: rwx for everyone on the
-# global install dirs, plus default ACLs so files/dirs created later inherit it.
-RUN mkdir -p /usr/local/lib/node_modules /usr/local/bin && \
-    setfacl -R -m o::rwx /usr/local/lib/node_modules /usr/local/bin && \
-    setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
+# -----------------------------------------------------------------------------
+# Agent payload
+#
+# Each volatile agent acquisition is its own cache boundary. The final
+# agents-payload stage only gathers their resolved binaries and pipx tree.
+# -----------------------------------------------------------------------------
+FROM language-runtime AS agent-builder
 
-CMD ["/bin/bash"]
+RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
+    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
+    bash ca-certificates crontabs gzip shadow-utils tar unzip
 
-# ---------------------------------------------------------------------------
-# Agent tooling is built once in a self-contained prefix. Language toolchains
-# intentionally do not inherit it: each final image adds this payload only
-# after its expensive language-specific layers have been cached. But honestly
-# this layer is probably heavier than the languages.
-# ---------------------------------------------------------------------------
-FROM base-core AS agents-payload
+ENV HOME=/mnt/agents-home
+ENV NPM_CONFIG_PREFIX=/mnt/agents-npm
+ENV CODEX_NON_INTERACTIVE=1
 
-ARG AGENTS_PREFIX=/opt/agents
-ENV PATH=/opt/agents/bin:$PATH
+RUN useradd -m -d "$HOME" -s /bin/bash -u 10000 builder && \
+    mkdir -p /mnt/init /mnt/payload "$NPM_CONFIG_PREFIX" && \
+    chown -R builder:builder "$HOME" /mnt/init /mnt/payload "$NPM_CONFIG_PREFIX"
+
+USER builder
+WORKDIR /mnt/init
+
+FROM agent-builder AS smart-tree-payload
+ADD --chown=builder:builder --chmod=0755 https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./install
+RUN PATH=/mnt/payload:$PATH INSTALL_DIR=/mnt/payload ./install && chmod +x /mnt/payload/*
+
+FROM agent-builder AS codex-payload
+ADD --chown=builder:builder --chmod=0755 https://chatgpt.com/codex/install.sh ./install
+RUN --mount=type=cache,id=agents-home-cache,target=/mnt/agents-home/.cache,uid=10000,gid=10000,sharing=locked \
+    CODEX_INSTALL_DIR=/mnt/payload ./install && \
+    rm -f /mnt/payload/codex && \
+    cp -L "$HOME"/.codex/packages/standalone/current/bin/codex /mnt/payload/codex && \
+    cp -L "$HOME"/.codex/packages/standalone/current/bin/codex-code-mode-host /mnt/payload/codex-code-mode-host && \
+    /mnt/payload/codex --version
+
+FROM agent-builder AS grok-payload
+ADD --chown=builder:builder --chmod=0755 https://x.ai/cli/install.sh ./install
+RUN GROK_BIN_DIR=/mnt/payload ./install && \
+    /mnt/payload/grok --version
+
+FROM agent-builder AS claude-payload
+RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000,sharing=locked \
+    npm install -g @anthropic-ai/claude-code && \
+    cp -L "$NPM_CONFIG_PREFIX/bin/claude" /mnt/payload/claude && \
+    /mnt/payload/claude --version
+
+FROM agent-builder AS opencode-payload
+RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000,sharing=locked \
+    npm install -g opencode-ai && \
+    cp -L "$NPM_CONFIG_PREFIX/bin/opencode" /mnt/payload/opencode && \
+    /mnt/payload/opencode --version
+
+FROM agent-builder AS bun-payload
+RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000,sharing=locked \
+    npm install -g bun && \
+    cp -L "$NPM_CONFIG_PREFIX/bin/bun" /mnt/payload/bun && \
+    /mnt/payload/bun --version
+
+FROM scratch AS rtk-payload
+ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-unknown-linux-musl.tar.gz /
+
+FROM language-runtime AS pipx-payload
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-
-COPY --from=builder-agents /mnt/agents-bin/ $AGENTS_PREFIX/bin/
-
+ENV PIP_ROOT_USER_ACTION=ignore
 RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip \
-    --mount=type=cache,id=root-npm,target=/root/.npm \
-    <<-EOT
+    python3.14 -m pip install --prefix=/opt/agents pipx && \
+    chmod -R a+rX /opt/agents && \
+    /opt/agents/bin/pipx --version
 
-python3.14 -m pip install --prefix="$AGENTS_PREFIX" pipx
+FROM scratch AS agents-payload
+COPY --from=pipx-payload /opt/agents/ /opt/agents/
+COPY --from=rtk-payload /rtk /opt/agents/bin/rtk
+COPY --from=smart-tree-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=codex-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=grok-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=claude-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=opencode-payload /mnt/payload/ /opt/agents/bin/
+COPY --from=bun-payload /mnt/payload/ /opt/agents/bin/
 
-EOT
+# -----------------------------------------------------------------------------
+# Language and framework payloads. These are siblings of runtime, not children
+# of it, so edits to core OS packages cannot trigger toolchain recompilation.
+# -----------------------------------------------------------------------------
+FROM language-runtime AS uv-payload
+RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
+    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs gzip tar
+RUN mkdir -p /opt/uv/bin && \
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/opt/uv/bin sh && \
+    /opt/uv/bin/uv --version
 
-# ---------------------------------------------------------------------------
-# Language-only stages all derive directly from `base-core`. They remain reusable
-# when any agent package changes.
-# ---------------------------------------------------------------------------
-FROM base-core AS python-core
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
+FROM language-runtime AS sass-payload
+ENV NPM_CONFIG_PREFIX=/opt/sass
+ENV PATH=/opt/sass/bin:$PATH
+RUN --mount=type=cache,id=root-npm,target=/root/.npm,sharing=locked \
+    npm install -g sass && sass --version
 
-# ---------------------------------------------------------------------------
-# `django` extends the Python toolchain.
-# ---------------------------------------------------------------------------
-FROM python-core AS django-core
-RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g sass
-COPY --link --chmod=0755 bin/django-manage /etc/profile.d/django-manage.sh
+FROM language-runtime AS typescript-payload
+ENV NPM_CONFIG_PREFIX=/opt/typescript
+ENV PATH=/opt/typescript/bin:$PATH
+RUN --mount=type=cache,id=root-npm,target=/root/.npm,sharing=locked \
+    npm install -g typescript tsx eslint && \
+    tsc --version && tsx --version && eslint --version
 
+FROM language-runtime AS rust-payload
 
-# ---------------------------------------------------------------------------
-# `rust`, `typescript`, `devops`, and `golang` derive from `base-core`.
-# ---------------------------------------------------------------------------
-FROM base-core AS rust-core
+RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
+    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
+    ca-certificates gcc git-core make openssl-devel pkgconf-pkg-config
 
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo
 ENV PATH=/usr/local/cargo/bin:$PATH
 
-ADD --chmod=+x https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init /tmp/rustup-init
+ADD --chmod=0755 https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init /tmp/rustup-init
 
-# Keep the large toolchain layer reusable when only cargo tools change.
 RUN /tmp/rustup-init -y --no-modify-path --profile minimal && \
     rm /tmp/rustup-init && \
     chmod -R a+rwX "$RUSTUP_HOME" "$CARGO_HOME"
@@ -202,25 +180,11 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharin
     CARGO_TARGET_DIR=/tmp/cargo-target cargo install --locked cargo-nextest && \
     chmod a+rwX "$CARGO_HOME/bin/cargo-nextest"
 
-FROM base-core AS typescript-core
+FROM language-runtime AS golang-payload
 
-RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g typescript tsx eslint
-
-FROM base-core AS devops-core
-
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="/usr/local/bin" sh
-
-# ansible - Python tool, pip is canonical.
-# RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip python3.14 -m pip install ansible
-
-# `tf` alias, system-wide via profile.d so both bash and zsh pick it up
-# (zsh is the default shell in the devops variant). /etc/profile.d/*.sh is
-# sourced by /etc/zshrc and /etc/profile. Build-time, no post-create needed.
-RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
-
-RUN --mount=type=cache,id=root-npm,target=/root/.npm npm install -g sass
-
-FROM base-core AS golang-core
+RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
+    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
+    ca-certificates gcc git-core
 
 ENV GOROOT=/usr/local/go
 ENV GOPATH=/usr/local/gopath
@@ -228,78 +192,107 @@ ENV PATH=/usr/local/go/bin:/usr/local/gopath/bin:$PATH
 
 ADD --unpack https://go.dev/dl/go1.25.5.linux-amd64.tar.gz /usr/local/
 
-RUN --mount=type=cache,id=go-mod-amd64,target=/usr/local/gopath/pkg/mod \
-    --mount=type=cache,id=go-build-amd64,target=/root/.cache/go-build \
+RUN --mount=type=cache,id=go-mod-amd64,target=/usr/local/gopath/pkg/mod,sharing=locked \
+    --mount=type=cache,id=go-build-amd64,target=/root/.cache/go-build,sharing=locked \
     <<-EOT
 set -e
 mkdir -p "$GOPATH/bin"
 chmod a+rwx "$GOPATH" "$GOPATH/bin"
-# gopls + delve: the two every Go session needs (LSP + debugger)
 go install golang.org/x/tools/gopls@latest
 go install github.com/go-delve/delve/cmd/dlv@latest
 EOT
 
 FROM scratch AS unit
-WORKDIR /data
+WORKDIR /home/vscode
 ADD MOCK_DATA.csv ./
 
-# ---------------------------------------------------------------------------
-# Published targets compose cached language cores with the late agent payload.
-# ---------------------------------------------------------------------------
-FROM base-core AS base
-COPY --from=session-manager-plugin /mnt/rootfs/ /
-COPY --from=userland-setup / /
-RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
+FROM language-runtime AS runtime
 
-FROM agents-payload AS agents
-COPY --from=session-manager-plugin /mnt/rootfs/ /
-COPY --from=userland-setup / /
-RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
+ENV PATH=$PATH:/usr/local/sessionmanagerplugin/bin
 
-FROM python-core AS python
-COPY --from=agents-payload /opt/agents /opt/agents
+# This is the intentionally easy-to-edit layer. Changing it does not invalidate
+# language-runtime or any payload stage above.
+### CORE COMPONENTS
+RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
+    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
+    acl bash-completion bind-utils ca-certificates chkconfig crontabs \
+    crypto-policies-scripts diffutils file findutils gawk gcc gdb-gdbserver \
+    git-core gnupg2 grep gzip iproute iputils jq krb5-libs less libffi-devel libicu \
+    libxml2-devel lsof make man-db nano ncurses ncurses-devel net-tools nmap-ncat \
+    openssh-clients openssl-devel openssl-libs patch procps psmisc rsync sed shadow-utils \
+    socat sqlite-devel strace sudo tar unzip vim-minimal wget which xz xz-devel \
+    zip zlib zlib-devel zsh
+
+COPY --from=session-manager-rpm /session-manager-plugin.rpm /tmp/session-manager-plugin.rpm
+RUN rpm --install --nodeps /tmp/session-manager-plugin.rpm && \
+    rm /tmp/session-manager-plugin.rpm
+COPY --from=userland-payload / /
+
+# Let any user run `npm install -g` without sudo: rwx for everyone on the
+# global install dirs, plus default ACLs so files/dirs created later inherit it.
+# This runs after userland-payload because copying /usr/local/bin can replace
+# directory metadata.
+RUN mkdir -p /usr/local/lib/node_modules /usr/local/bin && \
+    setfacl -R -m o::rwx /usr/local/lib/node_modules /usr/local/bin && \
+    setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
+
+CMD ["/bin/bash"]
+
+# =============================================================================
+# SANDWICHES
+#
+# Every published target starts from the same runtime bread and only adds the
+# payloads it needs. There is no inheritance between published targets.
+# =============================================================================
+FROM runtime AS base
+
+FROM runtime AS agents
+COPY --link --from=agents-payload /opt/agents/ /opt/agents/
 ENV PATH=/opt/agents/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=session-manager-plugin /mnt/rootfs/ /
-COPY --from=userland-setup / /
-RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
-FROM django-core AS django
-COPY --from=agents-payload /opt/agents /opt/agents
-ENV PATH=/opt/agents/bin:$PATH
+FROM runtime AS python
+COPY --link --from=uv-payload /opt/uv/ /opt/uv/
+COPY --link --from=agents-payload /opt/agents/ /opt/agents/
+ENV PATH=/opt/agents/bin:/opt/uv/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=session-manager-plugin /mnt/rootfs/ /
-COPY --from=userland-setup / /
-RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
-FROM rust-core AS rust
-COPY --from=agents-payload /opt/agents /opt/agents
-ENV PATH=/opt/agents/bin:$PATH
+FROM runtime AS django
+COPY --link --from=uv-payload /opt/uv/ /opt/uv/
+COPY --link --from=sass-payload /opt/sass/ /opt/sass/
+COPY --link --chmod=0755 bin/django-manage /etc/profile.d/django-manage.sh
+COPY --link --from=agents-payload /opt/agents/ /opt/agents/
+ENV PATH=/opt/agents/bin:/opt/uv/bin:/opt/sass/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=session-manager-plugin /mnt/rootfs/ /
-COPY --from=userland-setup / /
-RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
-FROM typescript-core AS typescript
-COPY --from=agents-payload /opt/agents /opt/agents
-ENV PATH=/opt/agents/bin:$PATH
+FROM runtime AS rust
+COPY --link --from=rust-payload /usr/local/rustup/ /usr/local/rustup/
+COPY --link --from=rust-payload /usr/local/cargo/ /usr/local/cargo/
+COPY --link --from=agents-payload /opt/agents/ /opt/agents/
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH=/opt/agents/bin:/usr/local/cargo/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=session-manager-plugin /mnt/rootfs/ /
-COPY --from=userland-setup / /
-RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
-FROM devops-core AS devops
-COPY --from=agents-payload /opt/agents /opt/agents
-ENV PATH=/opt/agents/bin:$PATH
+FROM runtime AS typescript
+COPY --link --from=typescript-payload /opt/typescript/ /opt/typescript/
+COPY --link --from=agents-payload /opt/agents/ /opt/agents/
+ENV PATH=/opt/agents/bin:/opt/typescript/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=session-manager-plugin /mnt/rootfs/ /
-COPY --from=userland-setup / /
-RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
 
-FROM golang-core AS golang
-COPY --from=agents-payload /opt/agents /opt/agents
-ENV PATH=/opt/agents/bin:$PATH
+FROM runtime AS devops
+COPY --link --from=uv-payload /opt/uv/ /opt/uv/
+COPY --link --from=sass-payload /opt/sass/ /opt/sass/
+COPY --link --from=agents-payload /opt/agents/ /opt/agents/
+RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
+ENV PATH=/opt/agents/bin:/opt/uv/bin:/opt/sass/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-COPY --from=session-manager-plugin /mnt/rootfs/ /
-COPY --from=userland-setup / /
-RUN setfacl -m o::rwx -m d:o::rwx /usr/local/bin
+
+FROM runtime AS golang
+COPY --link --from=golang-payload /usr/local/go/ /usr/local/go/
+COPY --link --from=golang-payload /usr/local/gopath/ /usr/local/gopath/
+COPY --link --from=agents-payload /opt/agents/ /opt/agents/
+ENV GOROOT=/usr/local/go
+ENV GOPATH=/usr/local/gopath
+ENV PATH=/opt/agents/bin:/usr/local/go/bin:/usr/local/gopath/bin:$PATH
+ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
