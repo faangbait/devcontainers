@@ -44,6 +44,10 @@ declare -A LINKS=(
 sudo mkdir -p "${LINKS[@]}"
 sudo chown -R "$(id -u):$(id -g)" "$BASE"
 
+# The shell-env volume mounts root-owned on first create; claim it so drop-ins
+# can be written without sudo.
+sudo chown "$(id -u):$(id -g)" /etc/shell-env.d
+
 for target in "${!LINKS[@]}"; do
   mkdir -p "$(dirname "$target")"
 done

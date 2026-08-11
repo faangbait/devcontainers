@@ -33,6 +33,9 @@
             "settings": {}
         }
     },
+    "mounts": [
+        "source=portable-shell-env,target=/etc/shell-env.d,type=volume"
+    ],
     "remoteUser": "vscode",
     "postCreateCommand": "devcontainer-post-create",
     "postAttachCommand": "devcontainer-post-attach"

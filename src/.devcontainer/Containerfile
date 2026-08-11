@@ -13,12 +13,16 @@ ARG UBI_MINIMAL=registry.access.redhat.com/ubi10/ubi-minimal:latest
 FROM scratch AS ripgrep-payload
 ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz /
 
+FROM scratch AS gh-payload
+ADD --unpack=true https://github.com/cli/cli/releases/download/v2.97.0/gh_2.97.0_linux_amd64.tar.gz /
+
 FROM scratch AS userland-payload
 
 WORKDIR /usr/local/bin
 
 ADD --chmod=0755 https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 ./yq
 COPY --from=ripgrep-payload --chmod=0755 /ripgrep-*/rg ./rg
+COPY --from=gh-payload --chmod=0755 /gh_*/bin/gh ./gh
 COPY --link --chmod=0755 bin/aws-profile-for-any-shell ./aws-profile-for-any-shell
 COPY --link --chmod=0755 bin/devcontainer-post-create ./devcontainer-post-create
 COPY --link --chmod=0755 bin/devcontainer-post-attach ./devcontainer-post-attach
@@ -28,6 +32,8 @@ WORKDIR /etc
 COPY --link etc/AGENTS.md ./claude-code/CLAUDE.md
 COPY --link etc/context-mode.json ./context-mode.json
 COPY --link etc/devcontainer-aliases.sh ./profile.d/devcontainer-aliases.sh
+COPY --link etc/shell-env.sh ./shell-env.sh
+COPY --link etc/shell-env.sh ./profile.d/shell-env.sh
 
 # -----------------------------------------------------------------------------
 # Stable language floor
@@ -90,6 +96,9 @@ RUN --mount=type=cache,id=agents-home-cache,target=/mnt/agents-home/.cache,uid=1
 FROM base-agent-env AS grok-payload
 ADD --chown=builder:builder --chmod=0755 https://x.ai/cli/install.sh ./install
 RUN GROK_BIN_DIR=/mnt/payload ./install && \
+    rm -f /mnt/payload/grok /mnt/payload/agent && \
+    cp -L "$HOME"/.grok/downloads/grok-linux-x86_64 /mnt/payload/grok && \
+    ln -s grok /mnt/payload/agent && \
     /mnt/payload/grok --version
 
 FROM base-agent-env AS claude-payload
@@ -231,6 +240,24 @@ COPY --from=userland-payload / /
 RUN mkdir -p /usr/local/lib/node_modules /usr/local/bin && \
     setfacl -R -m o::rwx /usr/local/lib/node_modules /usr/local/bin && \
     setfacl -R -d -m o::rwx /usr/local/lib/node_modules /usr/local/bin
+
+# Shell environment mechanism. Anything dropped in /etc/shell-env.d as *.sh
+# reaches every shell in the container. Each shell family consults only its own
+# startup hook, so the loader is attached to all of them here:
+#
+#   bash login          /etc/profile -> /etc/profile.d/shell-env.sh
+#   bash interactive    /etc/bashrc  -> /etc/profile.d/shell-env.sh
+#   bash script         $BASH_ENV
+#   sh interactive      $ENV
+#   zsh, any mode       /etc/zshenv
+#
+# The directory is created here so the image is self-contained; devcontainer.json
+# mounts a volume over it so drop-ins survive rebuilds.
+RUN mkdir -p /etc/shell-env.d && \
+    echo '[ -r /etc/shell-env.sh ] && . /etc/shell-env.sh' >> /etc/zshenv
+
+ENV BASH_ENV=/etc/shell-env.sh
+ENV ENV=/etc/shell-env.sh
 
 CMD ["/bin/bash"]
 
