@@ -1,0 +1,67 @@
+#!/bin/bash
+set -euo pipefail
+
+declare -A hosts=()
+
+read_hosts() {
+  local alias hostname line
+  local line_number=0
+
+  while IFS= read -r line || [[ -n $line ]]; do
+    ((line_number += 1))
+    [[ -z $line ]] && continue
+
+    if [[ $line != *=* ]]; then
+      echo "invalid SSM_HOSTS entry at line $line_number: expected <alias>=<instance-name>" >&2
+      exit 2
+    fi
+
+    alias=${line%%=*}
+    hostname=${line#*=}
+
+    if [[ ! $alias =~ ^[[:alnum:]_.-]+$ || -z $hostname ]]; then
+      echo "invalid SSM_HOSTS entry at line $line_number: alias and instance name are required" >&2
+      exit 2
+    fi
+
+    if [[ ${hosts[$alias]+present} ]]; then
+      echo "invalid SSM_HOSTS entry at line $line_number: duplicate alias $alias" >&2
+      exit 2
+    fi
+
+    hosts["$alias"]=$hostname
+  done < <(tr '|' '\n' <<< "${SSM_HOSTS:-}")
+}
+
+read_hosts
+
+if [[ ${1:-} == --list ]]; then
+  if ((${#hosts[@]})); then
+    printf '%s\n' "${!hosts[@]}" | sort
+  fi
+  exit
+fi
+
+if [[ $# == 0 ]]; then
+  echo "usage: ssm <alias|instance-name> <port>" >&2
+  exit 2
+fi
+
+name=${hosts[$1]:-$1}
+port="$2"
+
+profile=${AWS_PROFILE:-power-developer}
+region=${AWS_REGION:-us-east-1}
+instance_id=$(aws ec2 describe-instances \
+  --profile "$profile" \
+  --region "$region" \
+  --filters "Name=tag:Name,Values=$name" Name=instance-state-name,Values=running \
+  --query 'Reservations[0].Instances[0].InstanceId' \
+  --output text)
+
+if [[ $instance_id == None ]]; then
+  echo "no running instance named $name" >&2
+  exit 1
+fi
+
+exec aws ssm start-session --profile "$profile" --region "$region" --target "$instance_id" --document-name AWS-StartSSHSession --parameters "portNumber=$port"

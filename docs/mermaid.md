@@ -95,7 +95,44 @@ flowchart LR
 The Makefile `TARGETS` list is the source of truth for published images. Each
 target's `devcontainer.json` selects the correspondingly named final stage.
 
-## 5. Design rules
+## 5. Shell environment
+
+Every sandwich ships a loader at `/etc/shell-env.sh` that sources every `*.sh`
+file in `/etc/shell-env.d`. The directory is the whole contract: drop a file in,
+it lands in your environment.
+
+`base` mounts the named volume `portable-shell-env` at that path, so drop-ins
+survive rebuilds and are shared by every container on the same Docker daemon.
+The volume mounts root-owned on first create; `devcontainer-post-create` claims
+it for the runtime user.
+
+```sh
+# /etc/shell-env.d/gh.sh
+export GH_TOKEN=...
+```
+
+The loader is wired into each shell family separately, because each consults
+only its own startup hook:
+
+| Shell | Hook |
+|---|---|
+| bash, login | `/etc/profile` → `/etc/profile.d/shell-env.sh` |
+| bash, interactive | `/etc/bashrc` → `/etc/profile.d/shell-env.sh` |
+| bash, script | `$BASH_ENV` |
+| sh, interactive | `$ENV` |
+| zsh, any mode | `/etc/zshenv` |
+
+Non-interactive `#!/bin/sh` scripts have no hook in any shell; they inherit the
+variables from their parent process instead.
+
+Fragments must be export-only and silent. The loader runs in non-interactive
+shells, so anything a fragment prints lands inside the `$(...)` capture of
+unrelated scripts.
+
+Secrets belong in the volume, never in the image and never in a committed
+`devcontainer.json`. No `ARG`, no `ENV`, no `containerEnv`.
+
+## 6. Design rules
 
 - New published targets must use `FROM runtime AS <target>`.
 - Published targets never inherit from another published target.

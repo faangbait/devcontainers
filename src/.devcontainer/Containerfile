@@ -27,6 +27,7 @@ COPY --link --chmod=0755 bin/aws-profile-for-any-shell ./aws-profile-for-any-she
 COPY --link --chmod=0755 bin/devcontainer-post-create ./devcontainer-post-create
 COPY --link --chmod=0755 bin/devcontainer-post-attach ./devcontainer-post-attach
 COPY --link --chmod=0755 bin/ssm ./ssm
+COPY --link --chmod=0755 bin/ssmssh ./ssmssh
 
 WORKDIR /etc
 COPY --link etc/AGENTS.md ./claude-code/CLAUDE.md
@@ -34,6 +35,7 @@ COPY --link etc/context-mode.json ./context-mode.json
 COPY --link etc/devcontainer-aliases.sh ./profile.d/devcontainer-aliases.sh
 COPY --link etc/shell-env.sh ./shell-env.sh
 COPY --link etc/shell-env.sh ./profile.d/shell-env.sh
+COPY --link etc/ssh_config ./ssh/ssh_config.d/99-devcontainer.conf
 
 # -----------------------------------------------------------------------------
 # Stable language floor

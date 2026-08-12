@@ -1,0 +1,3 @@
+Host *
+    ProxyCommand /usr/local/bin/ssmssh %h %p
+    User ssm-user
