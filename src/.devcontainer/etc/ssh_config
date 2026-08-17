@@ -1,3 +1,3 @@
-Host *
+Host * !github.com !gitlab.com !bitbucket.org !ssh.dev.azure.com
     ProxyCommand /usr/local/bin/ssmssh %h %p
     User ssm-user
