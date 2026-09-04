@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (($# == 0)); then
+  echo "usage: remindme <query>" >&2
+  exit 2
+fi
+
+system_prompt=$(cat <<'EOF'
+You are an intelligent unix manpage synthesizer. The user is a skilled Linux sysadmin seeking exact command syntax and flags, not an explaination of what a command does or when to use it.
+
+Respond immediately with the final answer only. Do not include any chain-of-thought, reasoning, or thinking steps.
+
+PROCEDURE
+- Start by resolving the command on the user's $PATH ('type -a <command>', 'which <command>') to identify what they're referring to.
+- Source all provided information from a deterministic, official source, in this order, stopping when user's request is fully formed:
+  - 'man <command>'
+  - 'help <command>' (shell builtins)
+  - '<command> --help'
+  - official package docs (e.g. package-manager doc packages)
+- Do not substitute any other source.
+
+HARD RULES
+- Never answer from memory.
+- Do not infer flags from source code or guesswork.
+- If the query is ambiguous (matches multiple distinct commands), briefly list the matches instead of guessing which one was meant.
+- If the docs are available but do not document the requested flag or behaviour, say so. Do not substitute a flag that looks plausible.
+
+BEFORE GIVING UP
+- Install or enable additional manpages.
+- Generate or download official docs from the package manager (some packages separate 'command-docs' from the 'command' package).
+
+If you still cannot continue, respond exactly:
+  remindme: no documentation found for <command>
+That response is far more useful than exceeding a boundary and hallucinating a bad command.
+
+OUTPUT
+- No thinking output, no preamble, no prose. Complete your investigation before returning any lines.
+- Acceptable shapes (separate lines with `\n`):
+  1. success:
+    Line 1: the runnable command fulfilling the request.
+    Line 2, only if a dry-run flag is documented:
+    dry-run: <same command with the dry-run flag applied>
+  2. ambiguous:
+    Line 1: `ssh node1 "sudo nano /opt/foo.md"`
+    Line 2: `code --remote ssh-remote+node1 /opt/foo.md`
+    Line 3: `ssh node1 "cat /opt/foo.md" | bat --language=md` (read only)
+  3. undocumented:
+    Line 1: `rm /var/tmp/foo`
+    Line 2: no --confirm for rm
+  4. fail:
+    Line 1: remindme: no documentation found for <command>
+
+EOF
+)
+
+# OUTPUT
+# - No thinking output, no preamble, no prose.
+# - Format your response for clarity using ANSI escape codes.
+# - Ideal shape:
+#   - Line 1: the runnable command fulfilling the request.
+#   - Line 2, only if a dry-run flag is documented:
+#     dry-run: <same command with the dry-run flag applied>
+# - Acceptable shape(s):
+#   - remindme: no documentation found for <command>
+#   - Line 3, if `dnf install` was required:
+#     installed pkgs: `golang-docs`, `gtk3-devel-docs`
+#   - Lines 1-3, if ambiguous request (e.g. "open /opt/foo.md on node1 in a text editor"):
+#     `ssh node1 "sudo nano /opt/foo.md"`
+#     `code --remote ssh-remote+node1 /opt/foo.md`
+#     `ssh node1 "cat /opt/foo.md" | bat --language=md` (read only)
+#   - Lines 1-2, if requested flag/behavior undocumented (e.g. "rm with a dry-run"):
+#     `rm /var/tmp/foo`
+#     no --dry-run for rm
+
+SCHEMA='{
+  "type": "object",
+  "properties": {
+    "command": { "type": "string" }
+  },
+  "required": ["command"],
+  "additionalProperties": false
+}'
+
+RESPONSE=$(exec grok \
+  --effort medium \
+  --system-prompt "$system_prompt" \
+  --always-approve \
+  --output-format json \
+  --json-schema "$SCHEMA" \
+  --single "$*" | jq -r '.structuredOutput.command')
+
+echo "${RESPONSE}"

@@ -16,6 +16,9 @@ ADD --unpack=true https://github.com/BurntSushi/ripgrep/releases/download/15.2.0
 FROM scratch AS gh-payload
 ADD --unpack=true https://github.com/cli/cli/releases/download/v2.97.0/gh_2.97.0_linux_amd64.tar.gz /
 
+FROM scratch AS flux-payload
+ADD --unpack=true https://github.com/fluxcd/flux2/releases/download/v2.9.5/flux_2.9.5_linux_amd64.tar.gz /
+
 FROM scratch AS userland-payload
 
 WORKDIR /usr/local/bin
@@ -120,6 +123,8 @@ RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=
     npm install -g bun && \
     cp -L "$NPM_CONFIG_PREFIX/bin/bun" /mnt/payload/bun && \
     /mnt/payload/bun --version
+
+COPY --link --chmod=0755 bin/remindme /mnt/payload/
 
 FROM scratch AS rtk-payload
 ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-unknown-linux-musl.tar.gz /
@@ -308,9 +313,11 @@ ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 FROM runtime AS devops
 COPY --link --from=uv-payload /opt/uv/ /opt/uv/
 COPY --link --from=sass-payload /opt/sass/ /opt/sass/
+COPY --link --from=flux-payload --chmod=0755 /flux /opt/flux/bin/flux
 COPY --link --from=agents-payload /opt/agents/ /opt/agents/
 RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
-ENV PATH=/opt/agents/bin:/opt/uv/bin:/opt/sass/bin:$PATH
+RUN echo '. <(flux completion "$(basename "$SHELL")") 2>/dev/null || true' > /etc/profile.d/flux-completion.sh
+ENV PATH=/opt/agents/bin:/opt/uv/bin:/opt/sass/bin:/opt/flux/bin:$PATH
 ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 
 FROM runtime AS golang
