@@ -19,8 +19,13 @@ ADD --unpack=true https://github.com/cli/cli/releases/download/v2.100.0/gh_2.100
 FROM scratch AS flux-payload
 ADD --unpack=true https://github.com/fluxcd/flux2/releases/download/v2.9.5/flux_2.9.5_linux_amd64.tar.gz /
 
-FROM scratch AS rtk-payload
-ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.47.0/rtk-x86_64-unknown-linux-musl.tar.gz /
+# Upstream install.sh builds a release URL that 404s, so take the asset directly.
+FROM scratch AS smart-tree-payload
+ADD --unpack=true https://github.com/8b-is/smart-tree/releases/download/v10.6.0/st-x86_64-unknown-linux-gnu.tar.gz /
+
+# DEPRECATED: rtk retired. Stage kept commented for provenance.
+# FROM scratch AS rtk-payload
+# ADD --unpack https://github.com/rtk-ai/rtk/releases/download/v0.47.0/rtk-x86_64-unknown-linux-musl.tar.gz /
 
 FROM scratch AS userland-payload
 
@@ -37,7 +42,8 @@ COPY --link --chmod=0755 bin/ssmssh ./ssmssh
 
 WORKDIR /etc
 COPY --link etc/AGENTS.md ./claude-code/CLAUDE.md
-COPY --link etc/context-mode.json ./context-mode.json
+# DEPRECATED: context-mode retired.
+# COPY --link etc/context-mode.json ./context-mode.json
 COPY --link etc/devcontainer-aliases.sh ./profile.d/devcontainer-aliases.sh
 COPY --link etc/shell-env.sh ./shell-env.sh
 COPY --link etc/shell-env.sh ./profile.d/shell-env.sh
@@ -87,10 +93,6 @@ RUN useradd -m -d "$HOME" -s /bin/bash -u 10000 builder && \
 
 USER builder
 WORKDIR /mnt/init
-
-FROM base-agent-env AS smart-tree-payload
-ADD --chown=builder:builder --chmod=0755 https://raw.githubusercontent.com/8b-is/smart-tree/main/scripts/install.sh ./install
-RUN PATH=/mnt/payload:$PATH INSTALL_DIR=/mnt/payload ./install && chmod +x /mnt/payload/*
 
 FROM base-agent-env AS codex-payload
 ADD --chown=builder:builder --chmod=0755 https://chatgpt.com/codex/install.sh ./install
@@ -210,8 +212,9 @@ EOT
 # -----------------------------------------------------------------------------
 FROM scratch AS agents-payload
 COPY --from=pipx-payload /opt/agents/ /opt/agents/
-COPY --from=rtk-payload /rtk /opt/agents/bin/rtk
-COPY --from=smart-tree-payload /mnt/payload/ /opt/agents/bin/
+# DEPRECATED: rtk retired.
+# COPY --from=rtk-payload /rtk /opt/agents/bin/rtk
+COPY --from=smart-tree-payload --chmod=0755 /st /opt/agents/bin/st
 COPY --from=codex-payload /mnt/payload/ /opt/agents/bin/
 COPY --from=grok-payload /mnt/payload/ /opt/agents/bin/
 COPY --from=claude-payload /mnt/payload/ /opt/agents/bin/

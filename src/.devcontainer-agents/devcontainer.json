@@ -25,9 +25,10 @@
             "settings": {},
             "mcp": {
                 "servers": {
-                    "context-mode": {
-                        "command": "context-mode"
-                    },
+                    // DEPRECATED: context-mode retired.
+                    // "context-mode": {
+                    //     "command": "context-mode"
+                    // },
                     "smart-tree": {
                         "args": [
                             "--mcp"

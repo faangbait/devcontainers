@@ -121,21 +121,24 @@ install_plugin playwright@claude-plugins-official
 install_plugin pyright-lsp@claude-plugins-official
 
 # Third-party plugins
-add_marketplace mksglu/context-mode
-install_plugin context-mode@context-mode
+# DEPRECATED: context-mode retired.
+# add_marketplace mksglu/context-mode
+# install_plugin context-mode@context-mode
 
 # add_marketplace DietrichGebert/ponytail
 # install_plugin ponytail@ponytail
 
 # OpenCode-only
-opencode plugin -g context-mode@1.0
+# DEPRECATED: context-mode retired.
+# opencode plugin -g context-mode@1.0
 opencode plugin -g @ex-machina/opencode-anthropic-auth@1.8
 opencode plugin -g @slkiser/opencode-quota@4.0
 opencode plugin -g caveman
 # opencode plugin -g ponytail
 
-rtk telemetry disable
-rtk init -g --auto-patch
-rtk init -g --opencode
-rtk init -g --codex
-rtk trust || true
+# DEPRECATED: rtk retired, binary no longer in the image.
+# rtk telemetry disable
+# rtk init -g --auto-patch
+# rtk init -g --opencode
+# rtk init -g --codex
+# rtk trust || true
