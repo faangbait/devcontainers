@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: plans-without-deleting
+expected_outcome: |
+  A cleanup plan ordered build cache, containers, volumes, images, with each item sorted into a class (keep, review, usually safe) and sizes given as unique or reclaimable space. Nothing is deleted.
