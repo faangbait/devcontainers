@@ -1,9 +1,0 @@
-// not imp
-{
-    "build": {
-        "dockerfile": "../.devcontainer/Containerfile",
-        "context": "../.devcontainer",
-        "target": "unit"
-    },
-    "mounts": []
-}

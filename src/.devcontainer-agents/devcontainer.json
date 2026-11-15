@@ -1,3 +1,8 @@
+// The agent CLIs ship as Dev Container Features from
+// ghcr.io/faangbait/dnf-features (see ADR006), not in this image. The agents
+// target is runtime plus this layer, and every other variant inherits it for
+// the shared agent state volume and the config-directory environment the
+// agent features write into.
 {
     "name": "ubi-agents",
     "build": {
@@ -15,29 +20,6 @@
             "version": "3.14",
             "installTools": true,
             "toolsToInstall": ""
-        }
-    },
-    "customizations": {
-        "vscode": {
-            "extensions": [
-                "ankurmathur.opencode-provider-bridge"
-            ],
-            "settings": {},
-            "mcp": {
-                "servers": {
-                    // DEPRECATED: context-mode retired.
-                    // "context-mode": {
-                    //     "command": "context-mode"
-                    // },
-                    "smart-tree": {
-                        "args": [
-                            "--mcp"
-                        ],
-                        "command": "st",
-                        "type": "stdio"
-                    }
-                }
-            }
         }
     },
     "mounts": [

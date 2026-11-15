@@ -4,7 +4,22 @@ I got tired of using ordinary devcontainers. Here's what I wanted to build inste
 
 ## 1. AI as a First-Class Citizen
 
-We sandbox our agents and control their context via clever mounting. See [ADR005.md](docs/ADR005.md).
+We sandbox our agents and control their context via clever mounting. Every image except `base` mounts a `portable-agents` volume at `/var/llms`, so agent credentials, plugins, and history survive rebuilds.
+
+The agents themselves are [Dev Container Features](https://github.com/faangbait/dnf-features), so each project picks one, two, or all of them:
+
+```json
+{
+    "image": "faangbait/workspaces:django",
+    "features": {
+        "ghcr.io/faangbait/dnf-features/claude:1": {
+            "pluginMarketplaces": "anthropics/claude-plugins-official",
+            "plugins": "chrome-devtools-mcp@claude-plugins-official frontend-design@claude-plugins-official playwright@claude-plugins-official pyright-lsp@claude-plugins-official"
+        },
+        "ghcr.io/faangbait/dnf-features/grok:1": {}
+    }
+}
+```
 
 ## 2. Built on UBI10 from Red Hat
 
@@ -14,7 +29,7 @@ That makes them incredibly stable. EOL for this base image is in **2035**.
 
 ## 3. Layered for Fast Builds
 
-Each layer of the Containerfile is decoupled from the other layers, so that only a few layers need to be rebuilt when things change. More details in [ADR002.md](docs/ADR002.md) and [ADR003.md](docs/ADR003.md).
+Each layer of the Containerfile is decoupled from the other layers, so that only a few layers need to be rebuilt when things change. More details in [ADR003.md](docs/ADR003.md) and [docs/mermaid.md](docs/mermaid.md).
 
 # Contributing
 

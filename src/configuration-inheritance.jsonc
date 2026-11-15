@@ -10,7 +10,6 @@
     "inheritance": {
         ".devcontainer": [],
         ".devcontainer-agents": [".devcontainer"],
-        ".devcontainer-agentic-unit": [".devcontainer-agents"],
         ".devcontainer-devops": [".devcontainer-agents"],
         ".devcontainer-go": [".devcontainer-agents"],
         ".devcontainer-rust": [".devcontainer-agents"],

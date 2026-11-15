@@ -1,0 +1,13 @@
+{
+    "name": "UBI 10 with agents",
+    "image": "faangbait/workspaces:django",
+    "features": {
+        "ghcr.io/faangbait/dnf-features/claude:1": {
+            "pluginMarketplaces": "anthropics/claude-plugins-official",
+            "plugins": "chrome-devtools-mcp@claude-plugins-official frontend-design@claude-plugins-official playwright@claude-plugins-official pyright-lsp@claude-plugins-official"
+        },
+        "ghcr.io/faangbait/dnf-features/codex:1": {
+            "agentVersion": "0.169.0"
+        }
+    }
+}
