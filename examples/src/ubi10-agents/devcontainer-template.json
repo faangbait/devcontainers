@@ -1,0 +1,21 @@
+{
+    "id": "ubi10-agents",
+    "version": "1.0.0",
+    "name": "UBI 10 with agents",
+    "description": "The prebuilt faangbait django image with Claude Code and Codex added as Dev Container Features.",
+    "documentationURL": "https://github.com/faangbait/devcontainers/tree/main/examples/src/ubi10-agents",
+    "publisher": "faangbait",
+    "keywords": [
+        "ubi",
+        "ubi10",
+        "red-hat",
+        "rhel",
+        "agents",
+        "claude",
+        "codex"
+    ],
+    "platforms": [
+        "Any"
+    ],
+    "options": {}
+}

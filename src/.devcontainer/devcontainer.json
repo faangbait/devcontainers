@@ -10,7 +10,10 @@
         // "SSM_HOSTS": "web=web-production|worker=worker-production|db=database-primary"
     },
     "features": {
-        "ghcr.io/devcontainers/features/common-utils:2": {
+        // 2.7.1 adds an unguarded `iptables` install, and UBI 10 ships no iptables
+        // package, so the feature fails on every image. Unpin once upstream guards it.
+        // see devcontainers/features issue #1776
+        "ghcr.io/devcontainers/features/common-utils:2.7.0": {
             "installZsh": true,
             "username": "vscode",
             "upgradePackages": true
@@ -30,7 +33,18 @@
                 "mk12.better-git-line-blame",
                 "vivaxy.vscode-conventional-commits"
             ],
-            "settings": {}
+            "settings": {},
+            "mcp": {
+                "servers": {
+                    "smart-tree": {
+                        "args": [
+                            "--mcp"
+                        ],
+                        "command": "st",
+                        "type": "stdio"
+                    }
+                }
+            }
         }
     },
     "mounts": [

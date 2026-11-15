@@ -1,0 +1,9 @@
+{
+  "features": {
+    "ghcr.io/faangbait/dnf-features/secure-containers:1": {
+      "version": "1.0.1",
+      "resolved": "ghcr.io/faangbait/dnf-features/secure-containers@sha256:5d94fd05bccfb3845c9041967d9091b346bf29c86023cf9f3e78c0106b47e1cc",
+      "integrity": "sha256:5d94fd05bccfb3845c9041967d9091b346bf29c86023cf9f3e78c0106b47e1cc"
+    }
+  }
+}

@@ -2,7 +2,9 @@
 
 The Containerfile builds sandwiches, not a lineage of increasingly specialized
 images. Every published target starts with the same runtime bread and copies in
-only the independent payloads it needs.
+only the independent payloads it needs. Coding agents are not baked into any
+image; a project adds them as Dev Container Features on top of a published
+image (section 5, ADR006).
 
 ## 1. The kitchen
 
@@ -11,7 +13,7 @@ flowchart LR
     UBI["UBI 10 minimal"] --> DEVTOOLS["base-dev-tools<br/>Node.js 24 + npm<br/>Python 3.14 + pip"]
 
     DEVTOOLS --> RUNTIME["runtime<br/>core OS components<br/>common userland"]
-    DEVTOOLS --> PAYLOADS["independent payload recipes<br/>agents · UV · Sass<br/>Rust · TypeScript · Go"]
+    DEVTOOLS --> PAYLOADS["independent payload recipes<br/>UV · Sass<br/>Rust · TypeScript · Go"]
 
     RUNTIME --> TARGETS["published sandwiches<br/>base · agents · python · django<br/>rust · typescript · devops"]
     PAYLOADS -. "COPY selected ingredients" .-> TARGETS
@@ -43,31 +45,36 @@ cached.
 All targets include the runtime bread: core OS tools, Node.js 24/npm, Python
 3.14/pip, and common userland files.
 
-| Target | Agents | UV | Sass | Rust | TypeScript | Go | Target-local config |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| Target | UV | Sass | Rust | TypeScript | Go | Target-local config | Agent state volume |
+|---|:---:|:---:|:---:|:---:|:---:|---|:---:|
 | `base` |  |  |  |  |  |  |  |
-| `agents` | ✓ |  |  |  |  |  |  |
-| `python` | ✓ | ✓ |  |  |  |  |  |
-| `django` | ✓ | ✓ | ✓ |  |  |  | `django-manage` |
-| `rust` | ✓ |  |  | ✓ |  |  |  |
-| `typescript` | ✓ |  |  |  | ✓ |  |  |
-| `devops` | ✓ | ✓ | ✓ |  |  |  | `tf` alias |
-| `golang` | ✓ |  |  |  |  | ✓ |  |
+| `agents` |  |  |  |  |  |  | ✓ |
+| `python` | ✓ |  |  |  |  |  | ✓ |
+| `django` | ✓ | ✓ |  |  |  | `django-manage` | ✓ |
+| `rust` |  |  | ✓ |  |  |  | ✓ |
+| `typescript` |  |  |  | ✓ |  |  | ✓ |
+| `devops` | ✓ | ✓ |  |  |  | `tf` alias | ✓ |
+| `golang` |  |  |  |  | ✓ |  | ✓ |
+
+"Agent state volume" is configuration, not image content: every variant except
+`base` inherits `.devcontainer-agents`, which mounts `portable-agents` at
+`/var/llms` and points the agents' config directories into it. No target ships
+an agent CLI; `agents` is the runtime plus that volume, for agent work with no
+language toolchain.
 
 Python in the runtime is deliberately small. Specialized packages such as
 `psycopg2`, Cython, and Requests are project dependencies, not properties of
 every sandbox.
 
-`golang` is a valid Containerfile target but is not currently listed in the
-Makefile's published `TARGETS`. The `unit` scratch target is a fixture for the
-agentic-unit configuration and is not a runtime sandwich.
+`typescript`, `rust`, and `golang` are published only by the Makefile's
+`FULL_TARGETS` (`make fullbuild` / `make fullpush`); `make build` / `make push`
+cover the lighter `TARGETS`.
 
 ## 3. Cache boundaries
 
 | Input changed | Rebuilt | Remains cached |
 |---|---|---|
 | Core-components package list | `runtime` and cheap target assembly | Node/npm, Python, all payload recipes |
-| One agent installer/package | That agent slice, agent gather stage, target assembly | Other agents and all language payloads |
 | Rust or `cargo-nextest` | Rust payload and Rust assembly | Runtime and every other payload |
 | Go, `gopls`, or Delve | Go payload and Go assembly | Runtime and every other payload |
 | Common userland file | Runtime copy and target assembly | Package installs and all payload recipes |
@@ -92,10 +99,59 @@ flowchart LR
     IMAGES --> SBOM["sbom/*.spdx.json"]
 ```
 
-The Makefile `TARGETS` list is the source of truth for published images. Each
+The Makefile `FULL_TARGETS` list (`TARGETS` plus the heavyweight toolchains) is
+the source of truth for published images. Each
 target's `devcontainer.json` selects the correspondingly named final stage.
 
-## 5. Shell environment
+## 5. Agents
+
+Agents are installed when a project's devcontainer is built, not when these
+images are. Each agent is one feature from
+[faangbait/dnf-features](https://github.com/faangbait/dnf-features), layered
+on top of whichever published image the project uses.
+
+```mermaid
+flowchart LR
+    IMAGE["faangbait/workspaces:django<br/>/var/llms volume<br/>CLAUDE_CONFIG_DIR · CODEX_HOME<br/>OPENCODE_CONFIG_DIR"]
+    CLAUDE["dnf-features/claude:1"]
+    CODEX["dnf-features/codex:1"]
+    GROK["dnf-features/grok:1"]
+    OPENCODE["dnf-features/opencode:1"]
+    PROJECT["project devcontainer"]
+
+    IMAGE --> PROJECT
+    CLAUDE -. "pick any" .-> PROJECT
+    CODEX -.-> PROJECT
+    GROK -.-> PROJECT
+    OPENCODE -.-> PROJECT
+
+    classDef target fill:#fce7f3,stroke:#9d174d
+    classDef feature fill:#dcfce7,stroke:#166534
+    class IMAGE target
+    class CLAUDE,CODEX,GROK,OPENCODE feature
+```
+
+```json
+{
+    "image": "faangbait/workspaces:django",
+    "features": {
+        "ghcr.io/faangbait/dnf-features/claude:1": {
+            "pluginMarketplaces": "anthropics/claude-plugins-official",
+            "plugins": "chrome-devtools-mcp@claude-plugins-official frontend-design@claude-plugins-official"
+        },
+        "ghcr.io/faangbait/dnf-features/grok:1": {
+            "agentVersion": "1.0.77"
+        }
+    }
+}
+```
+
+On container creation the image's `devcontainer-post-create` runs first: it
+claims `/var/llms` and links each agent's home directory into it. Each
+feature's own `postCreateCommand` then installs that agent's plugins, so
+plugins, credentials, and history land on the volume and survive rebuilds.
+
+## 6. Shell environment
 
 Every sandwich ships a loader at `/etc/shell-env.sh` that sources every `*.sh`
 file in `/etc/shell-env.d`. The directory is the whole contract: drop a file in,
@@ -132,16 +188,18 @@ unrelated scripts.
 Secrets belong in the volume, never in the image and never in a committed
 `devcontainer.json`. No `ARG`, no `ENV`, no `containerEnv`.
 
-## 6. Design rules
+## 7. Design rules
 
 - New published targets must use `FROM runtime AS <target>`.
 - Published targets never inherit from another published target.
 - Expensive or independently changing acquisitions get their own payload stage.
-- Payloads expose files; runtime metadata such as `PATH`, `PYTHONPATH`, `GOROOT`,
-  and `CARGO_HOME` belongs to the final target.
+- Payloads expose files; runtime metadata such as `PATH`, `GOROOT`, and
+  `CARGO_HOME` belongs to the final target.
+- Agent CLIs and their plugins are features, not payloads. The image only
+  provides the state volume they write into.
 - A payload may rely on the stable `base-dev-tools`, but not on another
   payload or the mutable core-components layer.
 - Keep stable inputs early and floating installers late within each payload
   recipe, as described by ADR003.
 
-See [ADR002](ADR002.md), [ADR003](ADR003.md), and [ADR004](ADR004.md).
+See [ADR003](ADR003.md) and [ADR006](ADR006.md).

@@ -34,6 +34,7 @@ WORKDIR /usr/local/bin
 ADD --chmod=0755 https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 ./yq
 COPY --from=ripgrep-payload --chmod=0755 /ripgrep-*/rg ./rg
 COPY --from=gh-payload --chmod=0755 /gh_*/bin/gh ./gh
+COPY --from=smart-tree-payload --chmod=0755 /st ./st
 COPY --link --chmod=0755 bin/aws-profile-for-any-shell ./aws-profile-for-any-shell
 COPY --link --chmod=0755 bin/devcontainer-post-create ./devcontainer-post-create
 COPY --link --chmod=0755 bin/devcontainer-post-attach ./devcontainer-post-attach
@@ -72,76 +73,9 @@ RUN ln -sf /usr/bin/python3.14 /usr/local/bin/python && \
     ln -sf /usr/bin/npx-24 /usr/local/bin/npx
 
 # -----------------------------------------------------------------------------
-# Agent payload
-#
-# Each volatile agent acquisition is its own cache boundary. The final
-# agents-payload stage only gathers their resolved binaries and pipx tree.
-# -----------------------------------------------------------------------------
-FROM base-dev-tools AS base-agent-env
-
-RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
-    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
-    bash ca-certificates crontabs gzip shadow-utils tar unzip
-
-ENV HOME=/mnt/agents-home
-ENV NPM_CONFIG_PREFIX=/mnt/agents-npm
-ENV CODEX_NON_INTERACTIVE=1
-
-RUN useradd -m -d "$HOME" -s /bin/bash -u 10000 builder && \
-    mkdir -p /mnt/init /mnt/payload "$NPM_CONFIG_PREFIX" && \
-    chown -R builder:builder "$HOME" /mnt/init /mnt/payload "$NPM_CONFIG_PREFIX"
-
-USER builder
-WORKDIR /mnt/init
-
-FROM base-agent-env AS codex-payload
-ADD --chown=builder:builder --chmod=0755 https://chatgpt.com/codex/install.sh ./install
-RUN --mount=type=cache,id=agents-home-cache,target=/mnt/agents-home/.cache,uid=10000,gid=10000 \
-    CODEX_INSTALL_DIR=/mnt/payload ./install && \
-    rm -f /mnt/payload/codex && \
-    cp -L "$HOME"/.codex/packages/standalone/current/bin/codex /mnt/payload/codex && \
-    cp -L "$HOME"/.codex/packages/standalone/current/bin/codex-code-mode-host /mnt/payload/codex-code-mode-host && \
-    /mnt/payload/codex --version
-
-FROM base-agent-env AS grok-payload
-ADD --chown=builder:builder --chmod=0755 https://x.ai/cli/install.sh ./install
-RUN GROK_BIN_DIR=/mnt/payload ./install && \
-    rm -f /mnt/payload/grok /mnt/payload/agent && \
-    cp -L "$HOME"/.grok/downloads/grok-linux-x86_64 /mnt/payload/grok && \
-    ln -s grok /mnt/payload/agent && \
-    /mnt/payload/grok --version
-
-FROM base-agent-env AS claude-payload
-RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000 \
-    npm install -g @anthropic-ai/claude-code && \
-    cp -L "$NPM_CONFIG_PREFIX/bin/claude" /mnt/payload/claude && \
-    /mnt/payload/claude --version
-
-FROM base-agent-env AS opencode-payload
-RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000 \
-    npm install -g opencode-ai && \
-    cp -L "$NPM_CONFIG_PREFIX/bin/opencode" /mnt/payload/opencode && \
-    /mnt/payload/opencode --version
-
-FROM base-agent-env AS bun-payload
-RUN --mount=type=cache,id=agents-npm,target=/mnt/agents-home/.npm,uid=10000,gid=10000 \
-    npm install -g bun && \
-    cp -L "$NPM_CONFIG_PREFIX/bin/bun" /mnt/payload/bun && \
-    /mnt/payload/bun --version
-
-COPY --link --chmod=0755 bin/remindme /mnt/payload/
-# -----------------------------------------------------------------------------
 # Language and framework payloads. These are siblings of runtime, not children
 # of it, so edits to core OS packages cannot trigger toolchain recompilation.
 # -----------------------------------------------------------------------------
-FROM base-dev-tools AS pipx-payload
-ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
-ENV PIP_ROOT_USER_ACTION=ignore
-RUN --mount=type=cache,id=root-pip,target=/root/.cache/pip \
-    python3.14 -m pip install --prefix=/opt/agents pipx && \
-    chmod -R a+rX /opt/agents && \
-    /opt/agents/bin/pipx --version
-
 FROM base-dev-tools AS uv-payload
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
     microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs gzip tar
@@ -206,25 +140,6 @@ go install golang.org/x/tools/gopls@latest
 go install github.com/go-delve/delve/cmd/dlv@latest
 EOT
 
-# -----------------------------------------------------------------------------
-# Payload assembly. Fan-in stages come after their independent leaf recipes so
-# the file reads in dependency order.
-# -----------------------------------------------------------------------------
-FROM scratch AS agents-payload
-COPY --from=pipx-payload /opt/agents/ /opt/agents/
-# DEPRECATED: rtk retired.
-# COPY --from=rtk-payload /rtk /opt/agents/bin/rtk
-COPY --from=smart-tree-payload --chmod=0755 /st /opt/agents/bin/st
-COPY --from=codex-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=grok-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=claude-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=opencode-payload /mnt/payload/ /opt/agents/bin/
-COPY --from=bun-payload /mnt/payload/ /opt/agents/bin/
-
-FROM scratch AS unit
-WORKDIR /home/vscode
-ADD MOCK_DATA.csv ./
-
 FROM base-dev-tools AS runtime
 
 # This is the intentionally easy-to-edit layer. Changing it does not invalidate
@@ -278,55 +193,42 @@ CMD ["/bin/bash"]
 # =============================================================================
 FROM runtime AS base
 
+# Agent CLIs are Dev Container Features (ADR006); this target is runtime plus
+# the agent state volume and environment from .devcontainer-agents.
 FROM runtime AS agents
-COPY --link --from=agents-payload /opt/agents/ /opt/agents/
-ENV PATH=/opt/agents/bin:$PATH
-ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
 
 FROM runtime AS python
 COPY --link --from=uv-payload /opt/uv/ /opt/uv/
-COPY --link --from=agents-payload /opt/agents/ /opt/agents/
-ENV PATH=/opt/agents/bin:/opt/uv/bin:$PATH
-ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+ENV PATH=/opt/uv/bin:$PATH
 
 FROM runtime AS django
 COPY --link --from=uv-payload /opt/uv/ /opt/uv/
 COPY --link --from=sass-payload /opt/sass/ /opt/sass/
 COPY --link --chmod=0755 bin/django-manage /etc/profile.d/django-manage.sh
-COPY --link --from=agents-payload /opt/agents/ /opt/agents/
-ENV PATH=/opt/agents/bin:/opt/uv/bin:/opt/sass/bin:$PATH
-ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+ENV PATH=/opt/uv/bin:/opt/sass/bin:$PATH
 
 FROM runtime AS rust
 COPY --link --from=rust-payload /usr/local/rustup/ /usr/local/rustup/
 COPY --link --from=rust-payload /usr/local/cargo/ /usr/local/cargo/
-COPY --link --from=agents-payload /opt/agents/ /opt/agents/
 ENV RUSTUP_HOME=/usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo
-ENV PATH=/opt/agents/bin:/usr/local/cargo/bin:$PATH
-ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+ENV PATH=/usr/local/cargo/bin:$PATH
 
 FROM runtime AS typescript
 COPY --link --from=typescript-payload /opt/typescript/ /opt/typescript/
-COPY --link --from=agents-payload /opt/agents/ /opt/agents/
-ENV PATH=/opt/agents/bin:/opt/typescript/bin:$PATH
-ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+ENV PATH=/opt/typescript/bin:$PATH
 
 FROM runtime AS devops
 COPY --link --from=uv-payload /opt/uv/ /opt/uv/
 COPY --link --from=sass-payload /opt/sass/ /opt/sass/
 COPY --link --from=flux-payload --chmod=0755 /flux /opt/flux/bin/flux
-COPY --link --from=agents-payload /opt/agents/ /opt/agents/
 RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
 RUN echo '. <(flux completion "$(basename "$SHELL")") 2>/dev/null || true' > /etc/profile.d/flux-completion.sh
-ENV PATH=/opt/agents/bin:/opt/uv/bin:/opt/sass/bin:/opt/flux/bin:$PATH
-ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+ENV PATH=/opt/uv/bin:/opt/sass/bin:/opt/flux/bin:$PATH
 
 FROM runtime AS golang
 COPY --link --from=golang-payload /usr/local/go/ /usr/local/go/
 COPY --link --from=golang-payload /usr/local/gopath/ /usr/local/gopath/
-COPY --link --from=agents-payload /opt/agents/ /opt/agents/
 ENV GOROOT=/usr/local/go
 ENV GOPATH=/usr/local/gopath
-ENV PATH=/opt/agents/bin:/usr/local/go/bin:/usr/local/gopath/bin:$PATH
-ENV PYTHONPATH=/opt/agents/lib/python3.14/site-packages
+ENV PATH=/usr/local/go/bin:/usr/local/gopath/bin:$PATH
