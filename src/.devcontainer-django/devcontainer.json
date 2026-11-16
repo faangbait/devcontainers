@@ -23,9 +23,7 @@
                 "cweijan.vscode-postgresql-client2"
             ],
             "settings": {
-                "python.analysis.autoImportCompletions": true,
-                "python.analysis.diagnosticMode": "workspace",
-                "python.analysis.typeCheckingMode": "basic",
+                "ty.diagnosticMode": "workspace",
                 "editor.codeActionsOnSave": {
                     "source.fixAll.eslint": "explicit",
                     "source.fixAll.stylelint": "always"

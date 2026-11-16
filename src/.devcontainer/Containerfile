@@ -21,7 +21,7 @@ ADD --unpack=true https://github.com/fluxcd/flux2/releases/download/v2.9.5/flux_
 
 # Upstream install.sh builds a release URL that 404s, so take the asset directly.
 FROM scratch AS smart-tree-payload
-ADD --unpack=true https://github.com/8b-is/smart-tree/releases/download/v10.6.0/st-x86_64-unknown-linux-gnu.tar.gz /
+ADD --unpack=true https://github.com/8b-is/smart-tree/releases/download/v24.2.0/st-x86_64-unknown-linux-gnu.tar.gz /
 
 # DEPRECATED: rtk retired. Stage kept commented for provenance.
 # FROM scratch AS rtk-payload
@@ -76,12 +76,10 @@ RUN ln -sf /usr/bin/python3.14 /usr/local/bin/python && \
 # Language and framework payloads. These are siblings of runtime, not children
 # of it, so edits to core OS packages cannot trigger toolchain recompilation.
 # -----------------------------------------------------------------------------
-FROM base-dev-tools AS uv-payload
-RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
-    microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs gzip tar
-RUN mkdir -p /opt/uv/bin && \
-    curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/opt/uv/bin sh && \
-    /opt/uv/bin/uv --version
+FROM scratch AS python-payload
+COPY --link --from=ghcr.io/astral-sh/uv:0.13.8   /uv /uvx   /opt/python/bin/
+COPY --link --from=ghcr.io/astral-sh/ty:0.0.104  /ty        /opt/python/bin/
+COPY --link --from=ghcr.io/astral-sh/ruff:0.17.5 /ruff      /opt/python/bin/
 
 FROM base-dev-tools AS sass-payload
 ENV NPM_CONFIG_PREFIX=/opt/sass
@@ -148,7 +146,7 @@ FROM base-dev-tools AS runtime
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
     microdnf install -y --releasever 10 --setopt=install_weak_deps=0 --setopt=keepcache=1 --nodocs \
     acl bash-completion bind-utils ca-certificates chkconfig crontabs \
-    crypto-policies-scripts diffutils file findutils gawk gcc gdb-gdbserver \
+    crypto-policies-scripts dbus-libs diffutils file findutils gawk gcc gdb-gdbserver \
     git-core gnupg2 grep gzip iproute iputils jq krb5-libs less libffi-devel libicu \
     libxml2-devel lsof make man-db nano ncurses ncurses-devel net-tools nmap-ncat \
     openssh-clients openssl-devel openssl-libs patch procps psmisc rsync sed shadow-utils \
@@ -198,14 +196,14 @@ FROM runtime AS base
 FROM runtime AS agents
 
 FROM runtime AS python
-COPY --link --from=uv-payload /opt/uv/ /opt/uv/
-ENV PATH=/opt/uv/bin:$PATH
+COPY --link --from=python-payload /opt/python/ /opt/python/
+ENV PATH=/opt/python/bin:$PATH
 
 FROM runtime AS django
-COPY --link --from=uv-payload /opt/uv/ /opt/uv/
+COPY --link --from=python-payload /opt/python/ /opt/python/
 COPY --link --from=sass-payload /opt/sass/ /opt/sass/
 COPY --link --chmod=0755 bin/django-manage /etc/profile.d/django-manage.sh
-ENV PATH=/opt/uv/bin:/opt/sass/bin:$PATH
+ENV PATH=/opt/python/bin:/opt/sass/bin:$PATH
 
 FROM runtime AS rust
 COPY --link --from=rust-payload /usr/local/rustup/ /usr/local/rustup/
@@ -219,12 +217,12 @@ COPY --link --from=typescript-payload /opt/typescript/ /opt/typescript/
 ENV PATH=/opt/typescript/bin:$PATH
 
 FROM runtime AS devops
-COPY --link --from=uv-payload /opt/uv/ /opt/uv/
+COPY --link --from=python-payload /opt/python/ /opt/python/
 COPY --link --from=sass-payload /opt/sass/ /opt/sass/
 COPY --link --from=flux-payload --chmod=0755 /flux /opt/flux/bin/flux
 RUN echo 'alias tf=terraform' > /etc/profile.d/tf-alias.sh
 RUN echo '. <(flux completion "$(basename "$SHELL")") 2>/dev/null || true' > /etc/profile.d/flux-completion.sh
-ENV PATH=/opt/uv/bin:/opt/sass/bin:/opt/flux/bin:$PATH
+ENV PATH=/opt/python/bin:/opt/sass/bin:/opt/flux/bin:$PATH
 
 FROM runtime AS golang
 COPY --link --from=golang-payload /usr/local/go/ /usr/local/go/

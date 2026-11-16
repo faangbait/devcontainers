@@ -14,7 +14,7 @@ The agents themselves are [Dev Container Features](https://github.com/faangbait/
     "features": {
         "ghcr.io/faangbait/dnf-features/claude:1": {
             "pluginMarketplaces": "anthropics/claude-plugins-official",
-            "plugins": "chrome-devtools-mcp@claude-plugins-official frontend-design@claude-plugins-official playwright@claude-plugins-official pyright-lsp@claude-plugins-official"
+            "plugins": "chrome-devtools-mcp@claude-plugins-official frontend-design@claude-plugins-official playwright@claude-plugins-official"
         },
         "ghcr.io/faangbait/dnf-features/grok:1": {}
     }
@@ -30,6 +30,8 @@ That makes them incredibly stable. EOL for this base image is in **2035**.
 ## 3. Layered for Fast Builds
 
 Each layer of the Containerfile is decoupled from the other layers, so that only a few layers need to be rebuilt when things change. More details in [ADR003.md](docs/ADR003.md) and [docs/mermaid.md](docs/mermaid.md).
+
+`make build` builds the default images (`base`, `agents`, `python`, `django`, `devops`); `make fullbuild` adds `typescript`, `rust`, and `golang`. Builds run four at a time (`-j4`), and since the images share BuildKit layers, most of the work is deduplicated. Each image's log is held until its build finishes, so output stays readable. On a machine short on memory, run `make -j1 build`.
 
 # Contributing
 

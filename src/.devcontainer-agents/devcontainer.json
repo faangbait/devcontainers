@@ -15,13 +15,6 @@
         "CODEX_HOME": "/var/llms/codex",
         "OPENCODE_CONFIG_DIR": "/var/llms/opencode"
     },
-    "features": {
-        "ghcr.io/devcontainers/features/python:1": {
-            "version": "3.14",
-            "installTools": true,
-            "toolsToInstall": ""
-        }
-    },
     "mounts": [
         "source=portable-agents,target=/var/llms,type=volume"
     ]

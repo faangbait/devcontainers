@@ -12,7 +12,8 @@
         }
     },
     "features": {
-        "ghcr.io/faangbait/dnf-features/secure-containers:1": {}
+        "ghcr.io/faangbait/dnf-features/secure-containers:1": {},
+        "ghcr.io/faangbait/dnf-features/claude:1": {}
     },
     "postCreateCommand": {
         "install-devcontainer-cli": "npm install -g @devcontainers/cli"

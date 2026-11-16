@@ -3,7 +3,7 @@
 # post-create.sh — backs `postCreateCommand` in every devcontainer variant.
 # Fires ONCE per container creation (after onCreateCommand/updateContentCommand),
 # NOT on every start or attach. Correct place for heavy work: project dep
-# install (npm/pip), cache-volume ownership, codebase indexing.
+# install (npm), cache-volume ownership, codebase indexing.
 #
 set -euo pipefail
 
@@ -72,13 +72,6 @@ chown_if /var/llms
 
 if [ -f "${project_root}/package.json" ]; then
   npm --prefix "${project_root}" install
-fi
-
-set --
-[ -f "${project_root}/requirements.txt" ] && set -- "$@" -r "${project_root}/requirements.txt"
-[ -f "${project_root}/dev_requirements.txt" ] && set -- "$@" -r "${project_root}/dev_requirements.txt"
-if [ "$#" -gt 0 ]; then
-  python -m pip install "$@"
 fi
 
 

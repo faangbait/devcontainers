@@ -9,7 +9,6 @@
         "PIP_CACHE_DIR": "/opt/devcontainer-cache/pip",
         "UV_CACHE_DIR": "/opt/devcontainer-cache/uv"
     },
-    "features": {},
     "customizations": {
         "vscode": {
             "extensions": [
@@ -18,6 +17,8 @@
                 "ms-python.python",
                 "ms-python.debugpy",
                 "ms-python.isort",
+                "astral-sh.ty",
+                "charliermarsh.ruff",
                 "CoenraadS.bracket-pair-colorizer-2",
                 "njpwerner.autodocstring"
 
@@ -33,7 +34,9 @@
                 "python.testing.pytestEnabled": false,
                 "python.testing.unittestEnabled": true,
                 "python.defaultInterpreterPath": "/usr/local/bin/python",
-                "python.analysis.autoFormatStrings": true
+                "python.languageServer": "None",
+                "ty.importStrategy": "fromEnvironment",
+                "ruff.importStrategy": "fromEnvironment"
             }
         }
     },

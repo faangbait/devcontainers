@@ -1,5 +1,10 @@
 {
   "features": {
+    "ghcr.io/faangbait/dnf-features/claude:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/faangbait/dnf-features/claude@sha256:bf3cd7e8c8d749ffd437ddaa7319b0ec765cf3ee72cf0fb0445e0fa512fff605",
+      "integrity": "sha256:bf3cd7e8c8d749ffd437ddaa7319b0ec765cf3ee72cf0fb0445e0fa512fff605"
+    },
     "ghcr.io/faangbait/dnf-features/secure-containers:1": {
       "version": "1.0.1",
       "resolved": "ghcr.io/faangbait/dnf-features/secure-containers@sha256:5d94fd05bccfb3845c9041967d9091b346bf29c86023cf9f3e78c0106b47e1cc",

@@ -13,7 +13,7 @@ flowchart LR
     UBI["UBI 10 minimal"] --> DEVTOOLS["base-dev-tools<br/>Node.js 24 + npm<br/>Python 3.14 + pip"]
 
     DEVTOOLS --> RUNTIME["runtime<br/>core OS components<br/>common userland"]
-    DEVTOOLS --> PAYLOADS["independent payload recipes<br/>UV · Sass<br/>Rust · TypeScript · Go"]
+    DEVTOOLS --> PAYLOADS["independent payload recipes<br/>uv·ty·ruff · Sass<br/>Rust · TypeScript · Go"]
 
     RUNTIME --> TARGETS["published sandwiches<br/>base · agents · python · django<br/>rust · typescript · devops"]
     PAYLOADS -. "COPY selected ingredients" .-> TARGETS
@@ -45,7 +45,7 @@ cached.
 All targets include the runtime bread: core OS tools, Node.js 24/npm, Python
 3.14/pip, and common userland files.
 
-| Target | UV | Sass | Rust | TypeScript | Go | Target-local config | Agent state volume |
+| Target | Python tools | Sass | Rust | TypeScript | Go | Target-local config | Agent state volume |
 |---|:---:|:---:|:---:|:---:|:---:|---|:---:|
 | `base` |  |  |  |  |  |  |  |
 | `agents` |  |  |  |  |  |  | ✓ |

@@ -6,6 +6,8 @@
         "target": "devops"
     },
     "containerEnv": {
+        "PIP_CACHE_DIR": "/opt/devcontainer-cache/pip",
+        "UV_CACHE_DIR": "/opt/devcontainer-cache/uv",
         "TF_PLUGIN_CACHE_DIR": "/opt/devcontainer-cache/terraform",
         "ANSIBLE_COLLECTIONS_PATH": "/opt/devcontainer-cache/ansible/collections:/usr/share/ansible/collections"
     },
@@ -13,16 +15,27 @@
     "customizations": {
         "vscode": {
             "extensions": [
+                "ms-python.python",
+                "ms-python.debugpy",
+                "astral-sh.ty",
+                "charliermarsh.ruff",
                 "4ops.terraform",
                 "wholroyd.jinja",
                 "owenlamont.ryl",
                 "ms-kubernetes-tools.vscode-kubernetes-tools",
                 "rogalmic.bash-debug"
             ],
-            "settings": {}
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/local/bin/python",
+                "python.languageServer": "None",
+                "ty.importStrategy": "fromEnvironment",
+                "ruff.importStrategy": "fromEnvironment"
+            }
         }
     },
     "mounts": [
+        "source=devcontainer-cache-pip,target=/opt/devcontainer-cache/pip,type=volume",
+        "source=devcontainer-cache-uv,target=/opt/devcontainer-cache/uv,type=volume",
         "source=devcontainer-cache-terraform,target=/opt/devcontainer-cache/terraform,type=volume",
         "source=devcontainer-cache-ansible,target=/opt/devcontainer-cache/ansible,type=volume"
     ]

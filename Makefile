@@ -22,6 +22,10 @@ CONFIG_golang     := $(MODULE_DIR)/src/.devcontainer-go/devcontainer.json
 TARGETS           := base agents python django devops
 FULL_TARGETS      := $(TARGETS) typescript rust golang
 
+# Targets share BuildKit layers, so parallel builds mostly dedupe. Override
+# with `make -j1 ...` if a machine is short on memory.
+MAKEFLAGS += -j4 --output-sync=target
+
 build push: $(addprefix build-, $(TARGETS))
 fullbuild fullpush: $(addprefix build-, $(FULL_TARGETS))
 
