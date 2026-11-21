@@ -34,8 +34,7 @@
                 "vivaxy.vscode-conventional-commits"
             ],
             "settings": {
-                "workbench.secondarySideBar.defaultVisibility": "visibleInWorkspace",
-                "telemetry.feedback.enabled": false
+                "workbench.secondarySideBar.defaultVisibility": "hidden"
             },
             "mcp": {
                 "servers": {
