@@ -116,6 +116,11 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
     CARGO_TARGET_DIR=/tmp/cargo-target cargo install --locked cargo-nextest && \
     chmod a+rwX "$CARGO_HOME/bin/cargo-nextest"
 
+# The cache mounts above leave empty root-owned registry/ and git/ mount points
+# in the image, created after the chmod -R earlier. Make them writable for any user.
+RUN mkdir -p "$CARGO_HOME/registry" "$CARGO_HOME/git" && \
+    chmod a+rwX "$CARGO_HOME/registry" "$CARGO_HOME/git"
+
 FROM base-dev-tools AS golang-payload
 
 RUN --mount=type=cache,id=ubi10-microdnf-amd64,target=/var/cache/yum,sharing=locked \
@@ -137,6 +142,12 @@ chmod a+rwx "$GOPATH" "$GOPATH/bin"
 go install golang.org/x/tools/gopls@latest
 go install github.com/go-delve/delve/cmd/dlv@latest
 EOT
+
+# The cache mount above only exists during that RUN; what lands in the image is
+# an empty root-owned pkg/mod mount point. Recreate it writable for any user
+# (otherwise: "go: could not create module cache: mkdir .../pkg/mod: permission denied").
+RUN mkdir -p "$GOPATH/pkg/mod" && \
+    chmod a+rwx "$GOPATH" "$GOPATH/bin" "$GOPATH/pkg" "$GOPATH/pkg/mod"
 
 FROM base-dev-tools AS runtime
 
