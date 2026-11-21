@@ -33,7 +33,10 @@
                 "mk12.better-git-line-blame",
                 "vivaxy.vscode-conventional-commits"
             ],
-            "settings": {},
+            "settings": {
+                "workbench.secondarySideBar.defaultVisibility": "visibleInWorkspace",
+                "telemetry.feedback.enabled": false
+            },
             "mcp": {
                 "servers": {
                     "smart-tree": {
