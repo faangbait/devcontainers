@@ -40,3 +40,9 @@ I tend to go the extra few steps up front to strip out excess personal/opinionat
 # More Information
 
 See [docs/ADR*.md](docs/)
+
+## Less Opinionated Alternative
+
+By default, these devcontainers are highly opinionated to prefer AWS, to the point of rewriting the `ssh` command to proxy through `ssm`. To disable this behavior and use ssh like normal, include this in `devcontainer.json`:
+
+`"postCreateCommand": "mkdir -p ~/.ssh && { grep -qs 'ProxyCommand none' ~/.ssh/config || printf '\\n# Undo image SSM defaults\\nHost *\\n  ProxyCommand none\\n  User %s\\n' \"$(id -un)\" >> ~/.ssh/config; } && chmod 600 ~/.ssh/config",`
